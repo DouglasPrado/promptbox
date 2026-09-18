@@ -17,7 +17,7 @@ final class AppCoordinator {
     private var launcherPanel: FloatingPanelController?
     private var editorPanel: FloatingPanelController?
 
-    private var activationObserver: NSObjectProtocol?
+    private var focusObserver: NSObjectProtocol?
     private var launcherHotkey: GlobalHotkey?
     private var editorHotkey: GlobalHotkey?
     private var didStart = false
@@ -29,6 +29,16 @@ final class AppCoordinator {
     }
 
     private var editorOrigin: EditorOrigin = .standalone
+
+
+    /// Estado da permissão de Acessibilidade, exposto no menu para que a resposta
+    /// venha do app e não de uma leitura do painel de Ajustes — os dois divergem
+    /// quando a autorização aponta para um binário anterior.
+    var hasInsertionPermission: Bool { inserter.hasPermission }
+
+    func requestInsertionPermission() {
+        Dialogs.requestAccessibilityPermission()
+    }
 
     /// Falso quando ⌥Space já pertence a outro app — o menu avisa em vez de
     /// deixar o usuário achar que a hotkey existe.
@@ -45,29 +55,36 @@ final class AppCoordinator {
         didStart = true
 
         registerHotkeys()
-        observeOtherAppsActivating()
+        observeLauncherLosingFocus()
         showLauncher()
     }
 
-    /// O launcher some quando **outro app** assume o primeiro plano (PRD §4.3).
-    /// O editor fica: ele pode ter texto não salvo.
+    /// O launcher some quando deixa de ser a janela com o foco de teclado (PRD §4.3).
     ///
-    /// Escutar "outro app ativou" em vez de "este app desativou" é o que torna isso
-    /// confiável: trocar a política de ativação faz o Promptbox piscar inativo, e
-    /// reagir a esse piscar escondia o painel que tinha acabado de abrir.
-    private func observeOtherAppsActivating() {
-        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
+    /// Esse é o sinal que descreve a intenção do usuário. Duas alternativas foram
+    /// testadas e falharam: reagir a `applicationDidResignActive` escondia o painel
+    /// no piscar da troca de política de ativação, e reagir à ativação de outro app
+    /// o fechava sozinho sempre que o Promptbox não conseguia segurar o primeiro
+    /// plano — o painel abria e sumia em menos de um segundo.
+    ///
+    /// Se o painel nunca chega a receber o foco, ele também não o perde, e fica
+    /// aberto até ESC ou ⌥Space. É o comportamento menos surpreendente dos três.
+    private func observeLauncherLosingFocus() {
+        focusObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            // Só o identificador atravessa para a main actor: `Notification` e
-            // `NSRunningApplication` não são `Sendable`.
-            let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            let bundleIdentifier = activated?.bundleIdentifier
+            let isLauncher = (notification.object as? FloatingPanel)?
+                .identifier?.rawValue == PanelID.launcher
 
             MainActor.assumeIsolated {
-                guard bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+                guard isLauncher else { return }
+
+                // Um alerta modal do próprio app também tira o foco do painel;
+                // nesse caso quem decide o que fechar é o fluxo do alerta.
+                guard NSApp.modalWindow == nil else { return }
+
                 self?.hideLauncher()
             }
         }

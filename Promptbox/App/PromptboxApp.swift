@@ -21,6 +21,8 @@ struct PromptboxApp: App {
 
             Divider()
 
+            accessibilityStatus
+
             Toggle(Strings.Menu.launchAtLogin, isOn: launchAtLogin)
 
             Divider()
@@ -35,6 +37,18 @@ struct PromptboxApp: App {
             Image(.menuBarIcon)
         }
         .menuBarExtraStyle(.menu)
+    }
+
+    /// Mostra o que o app enxerga, não o que o painel de Ajustes sugere.
+    @ViewBuilder
+    private var accessibilityStatus: some View {
+        if appDelegate.coordinator.hasInsertionPermission {
+            Text(Strings.Menu.accessibilityGranted)
+        } else {
+            Button(Strings.Menu.accessibilityMissing) {
+                appDelegate.coordinator.requestInsertionPermission()
+            }
+        }
     }
 
     private var searchTitle: String {

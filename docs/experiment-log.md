@@ -407,6 +407,30 @@ existiam apenas para desfazer o isolamento imposto pelo projeto.
 Decisão: o Promptbox compila de Swift 6.1 em diante, sem depender de recursos
 do toolchain mais recente.
 
+### Três tentativas até acertar o gatilho de "sumir ao trocar de app"
+
+O requisito do PRD §4.3 é simples de enunciar e difícil de amarrar ao evento certo.
+
+1. **`applicationDidResignActive`.** Trocar a política de ativação de `.accessory`
+   para `.regular` — necessária para o painel receber teclado — faz o app piscar
+   inativo. O painel abria e sumia no mesmo instante.
+2. **`NSWorkspace.didActivateApplicationNotification`.** Melhor, mas quando o
+   Promptbox não consegue segurar o primeiro plano, o app anterior reativa logo em
+   seguida e o painel some em menos de um segundo. Medido: abria e fechava com o
+   app de origem nunca deixando de ser o frontmost. Era isso que obrigava o usuário
+   a apertar ⌥Space várias vezes.
+3. **`NSWindow.didResignKeyNotification` no painel do launcher.** O sinal que de
+   fato descreve a intenção: o painel deixou de ser onde o usuário digita. Se ele
+   nunca recebe o foco, também não o perde, e fica aberto até ESC ou ⌥Space — o
+   comportamento menos surpreendente dos três.
+
+Verificado por amostragem de janela: ⌥Space abre e o painel continua aberto depois
+de 8 s; ativar outro app o esconde.
+
+Lição: "o app perdeu o foco" e "outro app ganhou o foco" parecem sinônimos de
+"o usuário saiu", mas ambos disparam por efeitos internos do próprio app. A janela
+perder o foco de teclado é o único dos três que fala da interação real.
+
 ### Regressão: o launcher se escondia sozinho ao abrir
 
 O "sumir ao trocar de app" foi implementado reagindo a `applicationDidResignActive`.

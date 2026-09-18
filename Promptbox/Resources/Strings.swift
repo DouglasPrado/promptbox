@@ -46,6 +46,8 @@ enum Strings {
         static let newPrompt = String(localized: "Novo Prompt")
         static let launchAtLogin = String(localized: "Abrir ao iniciar o Mac")
         static let quit = String(localized: "Sair do Promptbox")
+        static let accessibilityGranted = String(localized: "Acessibilidade: autorizada")
+        static let accessibilityMissing = String(localized: "Acessibilidade: autorizar…")
     }
 
     enum DeleteAlert {
