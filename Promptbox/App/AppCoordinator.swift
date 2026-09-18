@@ -49,8 +49,15 @@ final class AppCoordinator {
 
     /// O launcher some quando o usuário vai para outro app (PRD §4.3). O editor
     /// fica: ele pode ter texto não salvo.
+    ///
+    /// A confirmação é adiada de propósito: trocar a política de ativação faz o
+    /// app piscar inativo por um instante, e sem essa checagem o painel recém
+    /// aberto se esconderia sozinho.
     func appDidResignActive() {
-        hideLauncher()
+        Task { @MainActor [weak self] in
+            guard !NSApp.isActive else { return }
+            self?.hideLauncher()
+        }
     }
 
     // MARK: - Navegação
@@ -64,8 +71,11 @@ final class AppCoordinator {
     func showLauncher() {
         // Precisa vir antes de o painel ativar o Promptbox (PRD §36).
         inserter.captureFrontmostApp()
-        launcher.show()
+
+        // A política vem antes de exibir: um app `.accessory` não consegue se
+        // ativar, e trocar depois faria o painel aparecer sem o teclado.
         activation.panelDidShow(PanelID.launcher)
+        launcher.show()
     }
 
     func hideLauncher() {
@@ -84,8 +94,9 @@ final class AppCoordinator {
 
         editorModel.load(prompt)
         hideLauncher()
-        editor.show()
+
         activation.panelDidShow(PanelID.editor)
+        editor.show()
     }
 
     private func closeEditor() {
