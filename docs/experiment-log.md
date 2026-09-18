@@ -392,3 +392,17 @@ de tipo; a classe deixou de ser genérica e o Release voltou a compilar.
 - App rodando com os dados reais do usuário: a migração de schema com a coluna nova
   preservou os 4 prompts existentes.
 - ⌥Space, busca e inserção continuam funcionando depois da refatoração.
+
+### Portabilidade de toolchain (descoberto pelo CI)
+
+O runner do GitHub usa Xcode 16.4 / Swift 6.1, e o projeto dependia de
+`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, ajuste que só existe a partir do
+Swift 6.2. O app compilava nesta máquina (Xcode 26.5) e quebrava lá.
+
+A correção foi tornar o isolamento explícito em vez de exigir um toolchain novo:
+`AppDelegate` ganhou `@MainActor` — os demais tipos já declaravam o seu. Com o
+ajuste fora, as marcações `nonisolated` nos tipos de valor puderam sair: elas
+existiam apenas para desfazer o isolamento imposto pelo projeto.
+
+Decisão: o Promptbox compila de Swift 6.1 em diante, sem depender de recursos
+do toolchain mais recente.
