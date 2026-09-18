@@ -429,3 +429,26 @@ resolveu: no momento da checagem o app ainda constava inativo.
 Lição: reagir à perda de foco é ambíguo, porque o próprio app provoca perdas de
 foco transitórias. Reagir à ativação de outro app é o evento que de fato descreve
 a intenção do usuário.
+
+### Identidade de assinatura estável
+
+A permissão de Acessibilidade caía a cada compilação: o Xcode assina builds locais
+em modo ad-hoc, e o TCC amarra a autorização à assinatura. O item continuava
+marcado em Ajustes do Sistema, apontando para o binário anterior.
+
+`scripts/sign-local.sh` cria um certificado de code signing próprio num chaveiro
+dedicado e assina o app com ele. A identidade para de mudar e a autorização
+sobrevive aos builds.
+
+Detalhe que custou uma tentativa: o `security import` do macOS recusa o MAC padrão
+do OpenSSL 3. O p12 precisa ser exportado com `-macalg sha1` e PBE 3DES, e com
+senha não vazia.
+
+### Duplo Enter para inserir
+
+A ordem era inserir e depois fechar, então o Promptbox devolvia o foco ao app
+anterior com o próprio painel ainda na tela e o app ainda em primeiro plano. A
+espera pela ativação do destino estourava e o ⌘V saía assim mesmo, no app errado;
+na segunda tentativa o destino já estava na frente e funcionava.
+
+Agora o painel fecha antes de a inserção começar.

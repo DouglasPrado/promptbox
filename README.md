@@ -196,9 +196,13 @@ Promptbox asks for it the first time an insert is attempted and offers to open t
 settings pane. Search, editing and storage all work without it — only the paste needs it.
 
 > [!NOTE]
-> Promptbox is currently built without a signing certificate (ad-hoc signature).
-> macOS derives the Accessibility grant from the signature, so **the permission has to be
-> granted again after every rebuild**. Signing with a stable certificate removes this.
+> macOS derives the Accessibility grant from the code signature. Xcode signs local builds
+> ad-hoc, which produces a different identity on every build — the toggle stays on in
+> System Settings while pointing at the previous binary.
+>
+> `./scripts/sign-local.sh build/Promptbox.app` creates a local signing certificate once
+> and reuses it, so the grant survives rebuilds. Run it after each build, or grant the
+> permission again every time.
 
 ---
 

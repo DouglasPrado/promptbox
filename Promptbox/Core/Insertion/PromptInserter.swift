@@ -108,7 +108,7 @@ final class PromptInserter {
             try? await Task.sleep(for: .milliseconds(20))
         }
 
-        Log.insertion.warning("Tempo esgotado esperando a ativação do app de destino.")
+        Log.insertion.warning("Tempo esgotado esperando a ativação do app de destino; o ⌘V pode cair no app errado.")
     }
 
     /// `cghidEventTap` entrega o evento no nível mais baixo, como se viesse do
