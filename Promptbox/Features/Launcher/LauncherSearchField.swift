@@ -13,13 +13,15 @@ struct LauncherSearchField: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(Palette.textTertiary)
+                .accessibilityHidden(true)
 
             AppKitTextField(
                 text: $query,
-                placeholder: "Buscar prompts...",
+                placeholder: Strings.Launcher.searchPlaceholder,
                 fontSize: 20,
                 focusToken: focusToken
             )
+            .accessibilityLabel(Strings.Launcher.searchPlaceholder)
 
             newPromptButton
         }
@@ -33,9 +35,9 @@ struct LauncherSearchField: View {
             HStack(spacing: Metrics.spacingXS + 2) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .bold))
-                Text("Novo")
+                Text(Strings.Launcher.newPrompt)
                     .font(Typography.shortcut)
-                ShortcutBadge(keys: ["\u{2318}", "N"])
+                ShortcutBadge(keys: ["⌘", "N"])
             }
             .foregroundStyle(Palette.textSecondary)
             .padding(.leading, Metrics.spacingS)
@@ -44,6 +46,7 @@ struct LauncherSearchField: View {
             .background(Palette.tile, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("Novo prompt (\u{2318}N)")
+        .help(Strings.Launcher.newPromptHelp)
+        .accessibilityLabel(Strings.Launcher.newPromptHelp)
     }
 }

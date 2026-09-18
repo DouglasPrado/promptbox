@@ -9,28 +9,69 @@ final class PromptStore {
 
     private(set) var prompts: [Prompt] = []
 
+    /// Sobe a cada mutação. Quem mantém cache derivado (a busca do launcher) usa
+    /// isso para saber que precisa recalcular.
+    private(set) var revision: Int = 0
+
     private let container: ModelContainer?
+    private let defaults: UserDefaults
     private static let seedKey = "com.oialbert.promptbox.didSeedMocks"
 
-    init() {
-        // Caminho próprio: o padrão do SwiftData é
-        // ~/Library/Application Support/default.store, compartilhado com qualquer
-        // outro app não-sandboxed que também use o padrão.
-        let folder = URL.applicationSupportDirectory.appending(path: "Promptbox", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    init(
+        container: ModelContainer? = nil,
+        defaults: UserDefaults = .standard,
+        seedsIfEmpty: Bool = true
+    ) {
+        self.container = container ?? Self.makeContainer()
+        self.defaults = defaults
 
-        let configuration = ModelConfiguration(url: folder.appending(path: "promptbox.store"))
-        container = try? ModelContainer(for: PromptRecord.self, configurations: configuration)
-
-        guard container != nil else {
-            // Sem banco o protótipo ainda roda, só não guarda nada entre execuções.
-            NSLog("[Promptbox] Não foi possível abrir o banco; usando dados em memória.")
+        guard self.container != nil else {
+            // Sem banco o app ainda roda, só não guarda nada entre execuções.
+            Log.store.error("Não foi possível abrir o banco; usando dados em memória.")
             prompts = MockPrompts.all
             return
         }
 
-        seedIfNeeded()
+        if seedsIfEmpty {
+            seedIfNeeded()
+        }
+
         reload()
+    }
+
+    /// Store isolado, sem tocar no disco. Usado por testes e previews.
+    static func inMemory(seeded: Bool = false) throws -> PromptStore {
+        let container = try ModelContainer(
+            for: Schema(versionedSchema: PromptSchemaV1.self),
+            migrationPlan: PromptMigrationPlan.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+
+        let suite = "com.oialbert.promptbox.ephemeral"
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+
+        return PromptStore(container: container, defaults: defaults, seedsIfEmpty: seeded)
+    }
+
+    /// Container em pasta própria: o padrão do SwiftData é
+    /// `~/Library/Application Support/default.store`, compartilhado com qualquer
+    /// outro app não-sandboxed que também use o padrão.
+    private static func makeContainer() -> ModelContainer? {
+        let folder = URL.applicationSupportDirectory.appending(path: "Promptbox", directoryHint: .isDirectory)
+
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+            return try ModelContainer(
+                for: Schema(versionedSchema: PromptSchemaV1.self),
+                migrationPlan: PromptMigrationPlan.self,
+                configurations: ModelConfiguration(url: folder.appending(path: "promptbox.store"))
+            )
+        } catch {
+            Log.store.error("Falha ao abrir o container: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Prompt novo entra na lista; prompt editado é atualizado no lugar.
@@ -41,10 +82,11 @@ final class PromptStore {
             } else {
                 prompts.insert(prompt, at: 0)
             }
+            revision += 1
             return
         }
 
-        if let record = record(for: prompt.id) {
+        if let record = fetchRecord(id: prompt.id) {
             record.apply(prompt)
         } else {
             context.insert(PromptRecord(prompt: prompt))
@@ -55,8 +97,9 @@ final class PromptStore {
     }
 
     func delete(_ prompt: Prompt) {
-        guard let context, let record = record(for: prompt.id) else {
+        guard let context, let record = fetchRecord(id: prompt.id) else {
             prompts.removeAll { $0.id == prompt.id }
+            revision += 1
             return
         }
 
@@ -67,13 +110,10 @@ final class PromptStore {
 
     /// A inserção real acontece no `PromptInserter`; aqui fica só o registro de uso,
     /// que alimenta a ordenação por recentes.
-    func record(_ mode: InsertMode, prompt: Prompt) {
-        print("[Promptbox] \(mode.logLabel): \(prompt.title)")
-
-        guard let context, let record = record(for: prompt.id) else { return }
-        record.lastUsedAt = .now
+    func markUsed(_ prompt: Prompt) {
+        guard let record = fetchRecord(id: prompt.id) else { return }
+        record.markUsed()
         persist()
-        _ = context
         reload()
     }
 
@@ -81,57 +121,62 @@ final class PromptStore {
 
     private var context: ModelContext? { container?.mainContext }
 
-    private func record(for id: UUID) -> PromptRecord? {
+    private func fetchRecord(id: UUID) -> PromptRecord? {
         guard let context else { return nil }
         let descriptor = FetchDescriptor<PromptRecord>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
+    /// A ordenação acontece no banco: `touchedAt` é coluna, não valor calculado.
     private func reload() {
         guard let context else { return }
-        let records = (try? context.fetch(FetchDescriptor<PromptRecord>())) ?? []
-        prompts = records
-            .sorted { $0.touchedAt > $1.touchedAt }
-            .map(\.prompt)
+
+        let descriptor = FetchDescriptor<PromptRecord>(
+            sortBy: [SortDescriptor(\.touchedAt, order: .reverse)]
+        )
+
+        prompts = ((try? context.fetch(descriptor)) ?? []).map(\.prompt)
+        revision += 1
     }
 
-    /// Os 8 prompts do PRD §17 entram apenas na primeira execução. A flag evita
-    /// que eles voltem depois de o usuário apagar tudo.
+    /// Os 8 prompts do PRD §17 entram apenas na primeira execução.
+    ///
+    /// A flag só é gravada quando a semeadura realmente foi salva: marcá-la antes
+    /// deixaria o app permanentemente vazio caso a primeira gravação falhasse.
     private func seedIfNeeded() {
         guard let context else { return }
-        guard !UserDefaults.standard.bool(forKey: Self.seedKey) else { return }
+        guard !defaults.bool(forKey: Self.seedKey) else { return }
 
         let existing = (try? context.fetchCount(FetchDescriptor<PromptRecord>())) ?? 0
-        if existing == 0 {
-            let now = Date.now
-            for (offset, prompt) in MockPrompts.all.enumerated() {
-                // Mantém a ordem do mock: o primeiro item é o mais "recente".
-                let record = PromptRecord(prompt: prompt, now: now.addingTimeInterval(Double(-offset)))
-                context.insert(record)
-            }
-            persist()
+
+        guard existing == 0 else {
+            defaults.set(true, forKey: Self.seedKey)
+            return
         }
 
-        UserDefaults.standard.set(true, forKey: Self.seedKey)
+        let now = Date.now
+        for (offset, prompt) in MockPrompts.all.enumerated() {
+            // Mantém a ordem do mock: o primeiro item é o mais "recente".
+            context.insert(PromptRecord(prompt: prompt, now: now.addingTimeInterval(Double(-offset))))
+        }
+
+        guard persist() else {
+            context.rollback()
+            Log.store.error("Semeadura inicial falhou; será tentada de novo na próxima execução.")
+            return
+        }
+
+        defaults.set(true, forKey: Self.seedKey)
     }
 
-    private func persist() {
+    @discardableResult
+    private func persist() -> Bool {
         do {
             try context?.save()
+            return true
         } catch {
-            NSLog("[Promptbox] Falha ao salvar: \(error.localizedDescription)")
-        }
-    }
-}
-
-enum InsertMode: Sendable {
-    case insert
-    case insertAndSend
-
-    var logLabel: String {
-        switch self {
-        case .insert: "insert"
-        case .insertAndSend: "insert+send"
+            Log.store.error("Falha ao salvar: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 }

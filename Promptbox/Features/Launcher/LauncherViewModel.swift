@@ -1,5 +1,15 @@
-import AppKit
 import Foundation
+
+/// Quem recebe as intenções do launcher. Um protocolo em vez de closures soltas:
+/// esquecer de ligar uma ação passa a ser erro de compilação, não feature morta.
+@MainActor
+protocol LauncherViewModelDelegate: AnyObject {
+    func launcherDidInsert(_ prompt: Prompt, mode: InsertMode)
+    func launcherDidRequestNewPrompt()
+    func launcherDidRequestEdit(_ prompt: Prompt)
+    func launcherDidRequestDelete(_ prompt: Prompt)
+    func launcherDidRequestClose()
+}
 
 @MainActor
 @Observable
@@ -14,13 +24,15 @@ final class LauncherViewModel {
 
     private(set) var selectedIndex: Int = 0
 
+    weak var delegate: LauncherViewModelDelegate?
+
     private let store: PromptStore
 
-    var onInsert: ((Prompt, InsertMode) -> Void)?
-    var onNewPrompt: (() -> Void)?
-    var onEditPrompt: ((Prompt) -> Void)?
-    var onDeletePrompt: ((Prompt) -> Void)?
-    var onClose: (() -> Void)?
+    /// Filtrar é caro (`localizedStandardContains` é sensível a locale) e `results`
+    /// é lido várias vezes por evento. O cache é invalidado pelo termo e pela
+    /// revisão do store. Fora da observação para não disparar mudança ao ler.
+    @ObservationIgnored
+    private var cache: (term: String, revision: Int, results: [Prompt])?
 
     init(store: PromptStore) {
         self.store = store
@@ -28,13 +40,23 @@ final class LauncherViewModel {
 
     /// Busca por título, descrição, conteúdo e categoria (PRD §9.1).
     /// `localizedStandardContains` em vez de `localizedCaseInsensitiveContains`:
-    /// o segundo diferencia acentos, então "cod" não encontraria "Código" e
-    /// "documentacao" não encontraria "Documentação".
+    /// o segundo diferencia acentos, então "cod" não encontraria "Código".
     var results: [Prompt] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return store.prompts }
 
-        return store.prompts.filter { prompt in
+        if let cache, cache.term == term, cache.revision == store.revision {
+            return cache.results
+        }
+
+        let computed = Self.matches(term, in: store.prompts)
+        cache = (term, store.revision, computed)
+        return computed
+    }
+
+    static func matches(_ term: String, in prompts: [Prompt]) -> [Prompt] {
+        guard !term.isEmpty else { return prompts }
+
+        return prompts.filter { prompt in
             prompt.title.localizedStandardContains(term)
                 || prompt.description?.localizedStandardContains(term) == true
                 || prompt.content.localizedStandardContains(term)
@@ -60,28 +82,33 @@ final class LauncherViewModel {
     }
 
     func insert(_ prompt: Prompt, mode: InsertMode) {
-        onInsert?(prompt, mode)
+        delegate?.launcherDidInsert(prompt, mode: mode)
         reset()
-        onClose?()
+        delegate?.launcherDidRequestClose()
     }
 
     func edit(_ prompt: Prompt) {
         reset()
-        onEditPrompt?(prompt)
+        delegate?.launcherDidRequestEdit(prompt)
     }
 
     func delete(_ prompt: Prompt) {
-        onDeletePrompt?(prompt)
+        delegate?.launcherDidRequestDelete(prompt)
+    }
+
+    func newPrompt() {
+        reset()
+        delegate?.launcherDidRequestNewPrompt()
+    }
+
+    func close() {
+        reset()
+        delegate?.launcherDidRequestClose()
     }
 
     /// Depois de excluir, a lista encolhe e o índice pode ficar fora do intervalo.
     func clampSelection() {
         selectedIndex = min(selectedIndex, max(0, results.count - 1))
-    }
-
-    func newPrompt() {
-        reset()
-        onNewPrompt?()
     }
 
     func reset() {
@@ -92,10 +119,9 @@ final class LauncherViewModel {
     // MARK: - Teclado
 
     /// Chamado pelo painel antes do campo de busca ver o evento.
-    func handleKey(_ event: NSEvent) -> Bool {
-        let command = event.modifierFlags.contains(.command)
-
-        switch event.keyCode {
+    /// Retorna `true` quando consome a tecla.
+    func handle(_ key: KeyStroke) -> Bool {
+        switch key.code {
         case KeyCode.arrowDown:
             moveSelection(by: 1)
             return true
@@ -105,43 +131,42 @@ final class LauncherViewModel {
             return true
 
         case KeyCode.returnKey:
-            guard let prompt = selectedPrompt else { return true }
-            insert(prompt, mode: command ? .insertAndSend : .insert)
+            guard let prompt = selectedPrompt else { return false }
+            insert(prompt, mode: key.hasCommand ? .insertAndSend : .insert)
             return true
 
         case KeyCode.escape:
-            reset()
-            onClose?()
+            close()
             return true
 
         default:
             break
         }
 
-        // ⌘N abre o editor de prompt (PRD §16).
-        if command, event.charactersIgnoringModifiers?.lowercased() == "n" {
+        guard key.hasCommand else { return false }
+
+        // ⌘N novo (PRD §16), ⌘E edita (PRD §15), ⌘⌫ exclui.
+        if key.matches("n") {
             newPrompt()
             return true
         }
 
-        // ⌘⌫ exclui o selecionado. A confirmação fica a cargo de quem recebe.
-        if command, event.keyCode == KeyCode.delete {
-            guard let prompt = selectedPrompt else { return true }
-            delete(prompt)
-            return true
-        }
-
-        // ⌘E edita o prompt selecionado (PRD §15).
-        if command, event.charactersIgnoringModifiers?.lowercased() == "e" {
-            guard let prompt = selectedPrompt else { return true }
+        if key.matches("e") {
+            guard let prompt = selectedPrompt else { return false }
             edit(prompt)
             return true
         }
 
+        if key.code == KeyCode.delete {
+            guard let prompt = selectedPrompt else { return false }
+            delete(prompt)
+            return true
+        }
+
         // ⌘1…⌘9 inserem diretamente a linha correspondente.
-        if command, let number = Int(event.charactersIgnoringModifiers ?? ""), (1...9).contains(number) {
-            let index = number - 1
-            guard results.indices.contains(index) else { return true }
+        if let digit = key.digit {
+            let index = digit - 1
+            guard results.indices.contains(index) else { return false }
             insert(results[index], mode: .insert)
             return true
         }

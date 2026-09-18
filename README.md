@@ -16,6 +16,12 @@
   Built with <strong>Swift 6, SwiftUI and AppKit</strong>.
 </p>
 
+<p align="center">
+  <a href="https://github.com/DouglasPrado/promptbox/actions/workflows/ci.yml">
+    <img src="https://github.com/DouglasPrado/promptbox/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+</p>
+
 ---
 
 <p align="center">
@@ -206,9 +212,12 @@ Promptbox/
 │   └── AppEnvironment.swift    owns the models and both panels
 │
 ├── Core/
-│   ├── Window/                 FloatingPanel, controller, blur, key routing
+│   ├── Window/                 FloatingPanel, controller, activation policy
+│   ├── Input/                  KeyStroke, the AppKit-free keyboard type
 │   ├── Hotkey/                 Carbon global hotkey
-│   ├── Insertion/              clipboard, focus handoff, ⌘V, permission
+│   ├── Insertion/              clipboard, focus handoff, ⌘V
+│   ├── Dialogs.swift           modal alerts
+│   ├── Log.swift               os.Logger channels
 │   └── LoginItem.swift         launch at login
 │
 ├── Features/
@@ -218,8 +227,15 @@ Promptbox/
 ├── Models/                     Prompt, PromptStore, PromptRecord (SwiftData)
 ├── Mocks/                      the eight seeded prompts
 ├── DesignSystem/               Palette, Typography, Metrics, components
-└── Resources/                  asset catalog
+└── Resources/                  asset catalog, strings
+
+PromptboxTests/                 view models, store and keyboard logic
 ```
+
+`AppCoordinator` owns navigation and nothing else: services never reach into the
+UI, alerts live in `Dialogs`, and the activation policy has a single owner. View
+models talk to it through delegate protocols, so a missing wire is a compile
+error instead of a silently dead feature.
 
 There is **no main window**. The interface is an `NSPanel` hosting SwiftUI through
 `NSHostingController`, which is what gives the launcher its Spotlight-like behaviour:
@@ -265,8 +281,21 @@ xcodebuild -project Promptbox.xcodeproj \
            build
 ```
 
+Run the tests:
+
+```bash
+xcodebuild test \
+  -project Promptbox.xcodeproj \
+  -scheme Promptbox \
+  -destination 'platform=macOS'
+```
+
 The app target has no external dependencies — SwiftUI, AppKit, SwiftData, Carbon and
 ApplicationServices only.
+
+The view models take a plain `KeyStroke` value instead of `NSEvent`, so search
+matching, selection wrap-around, shortcut dispatch and store CRUD are all covered
+by unit tests that need no window server. CI runs them on every pull request.
 
 ---
 
@@ -295,6 +324,11 @@ ignore events posted at higher taps.
 
 SwiftData defaults to `~/Library/Application Support/default.store`, which every
 non-sandboxed SwiftData app shares. Promptbox writes to its own folder instead.
+
+### Digits by key code, not by character
+
+`⌘1`…`⌘9` read the physical key code. Reading the typed character breaks on
+layouts where a digit requires Shift, such as French AZERTY.
 
 ### No sandbox
 

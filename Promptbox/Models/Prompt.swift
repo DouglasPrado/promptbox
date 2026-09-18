@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct Prompt: Identifiable, Hashable, Sendable {
+struct Prompt: Identifiable, Hashable, Sendable {
     let id: UUID
     var title: String
     var description: String?
@@ -31,7 +31,7 @@ nonisolated struct Prompt: Identifiable, Hashable, Sendable {
     }
 }
 
-nonisolated enum PromptCategory: String, CaseIterable, Identifiable, Sendable {
+enum PromptCategory: String, CaseIterable, Identifiable, Sendable {
     case development
     case review
     case documentation

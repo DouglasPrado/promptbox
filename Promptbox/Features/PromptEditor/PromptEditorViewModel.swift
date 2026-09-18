@@ -1,5 +1,11 @@
-import AppKit
 import Foundation
+
+@MainActor
+protocol PromptEditorViewModelDelegate: AnyObject {
+    func editorDidSave(_ prompt: Prompt)
+    func editorDidCancel()
+    func editorDidRequestDelete(_ prompt: Prompt)
+}
 
 @MainActor
 @Observable
@@ -10,31 +16,38 @@ final class PromptEditorViewModel {
     var content: String = ""
     var symbol: String?
 
-    /// A edição reaproveita o mesmo componente (PRD §15): muda só o rótulo.
-    private(set) var editingID: UUID?
+    weak var delegate: PromptEditorViewModelDelegate?
 
-    var onSave: ((Prompt) -> Void)?
-    var onCancel: (() -> Void)?
-    var onDelete: ((Prompt) -> Void)?
+    /// O prompt original em edição. Guardado inteiro, e não só o id, porque a
+    /// exclusão precisa se referir ao que está salvo — não ao que está sendo
+    /// digitado no formulário.
+    private(set) var editing: Prompt?
 
-    var heading: String { isEditing ? "Editar Prompt" : "Salvar Prompt" }
+    var isEditing: Bool { editing != nil }
 
-    var isEditing: Bool { editingID != nil }
+    var heading: String { isEditing ? Strings.Editor.editHeading : Strings.Editor.createHeading }
 
-    /// Ícone mostrado no cabeçalho e na lista: o escolhido, senão o da categoria.
+    /// Ícone mostrado no cabeçalho: o escolhido, senão o da categoria.
     var displaySymbol: String {
         symbol ?? category?.symbol ?? "plus"
     }
 
     var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !trimmedTitle.isEmpty && !trimmedContent.isEmpty
     }
 
     var characterCount: Int { content.count }
 
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedContent: String {
+        content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func load(_ prompt: Prompt?) {
-        editingID = prompt?.id
+        editing = prompt
         title = prompt?.title ?? ""
         category = prompt?.category
         content = prompt?.content ?? ""
@@ -43,9 +56,10 @@ final class PromptEditorViewModel {
 
     func build() -> Prompt {
         Prompt(
-            id: editingID ?? UUID(),
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-            content: content,
+            id: editing?.id ?? UUID(),
+            title: trimmedTitle,
+            description: editing?.description,
+            content: trimmedContent,
             category: category,
             symbol: symbol
         )
@@ -55,38 +69,39 @@ final class PromptEditorViewModel {
         load(nil)
     }
 
-    // MARK: - Teclado
-
-    /// Chamado pelo painel antes dos campos verem o evento.
-    func handleKey(_ event: NSEvent) -> Bool {
-        // Enter sem ⌘ pertence ao conteúdo: quebra de linha.
-        if event.keyCode == KeyCode.returnKey, event.modifierFlags.contains(.command) {
-            save()
-            return true
-        }
-
-        if event.keyCode == KeyCode.escape {
-            cancel()
-            return true
-        }
-
-        return false
-    }
+    // MARK: - Ações
 
     func save() {
         guard canSave else { return }
         let prompt = build()
         reset()
-        onSave?(prompt)
+        delegate?.editorDidSave(prompt)
     }
 
     func cancel() {
         reset()
-        onCancel?()
+        delegate?.editorDidCancel()
     }
 
     func delete() {
-        guard isEditing else { return }
-        onDelete?(build())
+        guard let editing else { return }
+        delegate?.editorDidRequestDelete(editing)
+    }
+
+    // MARK: - Teclado
+
+    func handle(_ key: KeyStroke) -> Bool {
+        // Enter sem ⌘ pertence ao conteúdo: quebra de linha.
+        if key.code == KeyCode.returnKey, key.hasCommand {
+            save()
+            return true
+        }
+
+        if key.code == KeyCode.escape {
+            cancel()
+            return true
+        }
+
+        return false
     }
 }

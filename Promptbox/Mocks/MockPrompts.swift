@@ -1,7 +1,7 @@
 import Foundation
 
 /// Dados mockados da Fase 1 (PRD §17). Nenhuma persistência nesta etapa.
-nonisolated enum MockPrompts {
+enum MockPrompts {
 
     static let all: [Prompt] = [
         Prompt(

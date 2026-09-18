@@ -37,6 +37,17 @@ final class GlobalHotkey {
         Self.actions[id] = action
     }
 
+    /// Libera a combinação. Necessário para trocar o atalho em tempo de execução,
+    /// que é o próximo passo previsto para a configuração (PRD §35).
+    func unregister() {
+        if let reference {
+            UnregisterEventHotKey(reference)
+            self.reference = nil
+        }
+
+        Self.actions[id] = nil
+    }
+
     private static func installHandlerIfNeeded() {
         guard !handlerInstalled else { return }
         handlerInstalled = true

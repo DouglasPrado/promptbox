@@ -2,7 +2,7 @@ import Foundation
 
 /// Ícones oferecidos ao criar ou editar um prompt. SF Symbols, sem biblioteca
 /// externa (PRD §21). Conjunto curto de propósito: escolher deve ser instantâneo.
-nonisolated enum PromptSymbols {
+enum PromptSymbols {
 
     static let all: [String] = [
         "chevron.left.forwardslash.chevron.right",

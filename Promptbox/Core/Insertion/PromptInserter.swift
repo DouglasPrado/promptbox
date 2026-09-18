@@ -9,7 +9,22 @@ import Carbon.HIToolbox
 @MainActor
 final class PromptInserter {
 
+    enum Outcome {
+        case started
+        /// Sem permissão de Acessibilidade não há como postar o ⌘V (PRD §41).
+        case permissionRequired
+    }
+
     private var previousApp: NSRunningApplication?
+
+    /// Inserção em voo. A restauração do clipboard acontece no fim dela, então
+    /// uma segunda inserção precisa cancelar a primeira em vez de disputar.
+    private var pendingInsertion: Task<Void, Never>?
+
+    /// Clipboard do usuário, preservado enquanto houver inserção em andamento.
+    private var clipboardBackup: [[NSPasteboard.PasteboardType: Data]]?
+
+    var hasPermission: Bool { AXIsProcessTrusted() }
 
     /// Chamado antes de o painel roubar o foco.
     func captureFrontmostApp() {
@@ -18,16 +33,17 @@ final class PromptInserter {
         previousApp = front
     }
 
-    var hasPermission: Bool { AXIsProcessTrusted() }
+    @discardableResult
+    func insert(_ prompt: Prompt, mode: InsertMode) -> Outcome {
+        guard hasPermission else { return .permissionRequired }
 
-    func insert(_ prompt: Prompt, mode: InsertMode) {
-        guard hasPermission else {
-            presentPermissionAlert()
-            return
-        }
+        // Se já há inserção em voo, o clipboard guardado é o do usuário — não o
+        // prompt anterior. Preserva o backup e cancela a restauração pendente.
+        let backup = clipboardBackup ?? pasteboardSnapshot()
+        clipboardBackup = backup
+        pendingInsertion?.cancel()
 
         let target = previousApp
-        let saved = pasteboardSnapshot()
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(prompt.content, forType: .string)
@@ -38,26 +54,62 @@ final class PromptInserter {
             NSApp.yieldActivation(to: target)
         }
 
-        Task { @MainActor in
-            target?.activate()
+        pendingInsertion = Task { @MainActor [weak self] in
+            guard let self else { return }
 
-            // O app anterior precisa de um instante para voltar a receber eventos.
-            try? await Task.sleep(for: .milliseconds(140))
-            post(key: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+            await self.paste(into: target, mode: mode)
+            guard !Task.isCancelled else { return }
 
-            if mode == .insertAndSend {
-                try? await Task.sleep(for: .milliseconds(80))
-                post(key: CGKeyCode(kVK_Return), flags: [])
+            // Alguns apps leem a área de transferência de forma preguiçosa;
+            // restaurar cedo demais faria o destino ler o conteúdo antigo.
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+
+            self.restoreClipboard()
+        }
+
+        return .started
+    }
+
+    // MARK: - Colagem
+
+    private func paste(into target: NSRunningApplication?, mode: InsertMode) async {
+        if let target {
+            if !target.activate() {
+                Log.insertion.warning("O app de destino não aceitou a ativação.")
             }
+            await waitForActivation(of: target)
+        }
 
-            // Restaurar cedo demais faria o app de destino ler o clipboard antigo:
-            // alguns apps leem a área de transferência de forma preguiçosa.
-            try? await Task.sleep(for: .milliseconds(800))
-            restore(saved)
+        post(key: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+
+        if mode == .insertAndSend {
+            try? await Task.sleep(for: .milliseconds(80))
+            post(key: CGKeyCode(kVK_Return), flags: [])
         }
     }
 
-    // MARK: - Eventos de teclado
+    /// Espera o destino voltar ao primeiro plano em vez de apostar num tempo fixo:
+    /// sob carga a ativação leva bem mais que uma constante escolhida no olho.
+    private func waitForActivation(
+        of target: NSRunningApplication,
+        timeout: Duration = .milliseconds(800)
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+
+        while clock.now < deadline {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier {
+                // Pequena folga para a janela do destino virar key.
+                try? await Task.sleep(for: .milliseconds(40))
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        Log.insertion.warning("Tempo esgotado esperando a ativação do app de destino.")
+    }
 
     /// `cghidEventTap` entrega o evento no nível mais baixo, como se viesse do
     /// teclado físico — é o que apps de terminal esperam.
@@ -89,11 +141,14 @@ final class PromptInserter {
         } ?? []
     }
 
-    private func restore(_ snapshot: [[NSPasteboard.PasteboardType: Data]]) {
+    private func restoreClipboard() {
+        guard let backup = clipboardBackup else { return }
+        clipboardBackup = nil
+
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
-        let items = snapshot.map { contents -> NSPasteboardItem in
+        let items = backup.map { contents -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in contents {
                 item.setData(data, forType: type)
@@ -103,36 +158,5 @@ final class PromptInserter {
 
         guard !items.isEmpty else { return }
         pasteboard.writeObjects(items)
-    }
-
-    // MARK: - Permissão (PRD §41)
-
-    private func presentPermissionAlert() {
-        NSApp.activate(ignoringOtherApps: true)
-
-        let alert = NSAlert()
-        alert.messageText = "Promptbox precisa de permissão de Acessibilidade"
-        alert.informativeText = """
-        Para inserir o prompt no app anterior, o Promptbox precisa ser autorizado em:
-
-        Ajustes do Sistema → Privacidade e Segurança → Acessibilidade
-
-        Depois de autorizar, tente novamente.
-        """
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Abrir Ajustes")
-        alert.addButton(withTitle: "Depois")
-
-        guard alert.runAbovePanels() == .alertFirstButtonReturn else { return }
-
-        // Registra o app na lista de Acessibilidade e abre o painel do sistema.
-        // A chave é usada como literal porque `kAXTrustedCheckOptionPrompt` é uma
-        // global mutável, rejeitada pelo modo de concorrência do Swift 6.
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
     }
 }
