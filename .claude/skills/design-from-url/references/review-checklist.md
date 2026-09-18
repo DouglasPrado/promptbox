@@ -1,0 +1,22 @@
+# Final review checklist
+
+- URL/source pages listed.
+- Browser availability accurately reported.
+- No placeholders.
+- Token names describe roles.
+- Repeated values dominate scales.
+- Proprietary fonts distinguished from fallbacks.
+- Exact responsive breakpoints evidenced.
+- Visual DNA appears in practical prose.
+- Overview is concrete, not generic filler.
+- Layout explains composition patterns.
+- Elevation explains actual depth mechanism.
+- Shapes identify meaningful exceptions.
+- Components cover recurring families/states.
+- Do's/Don'ts prevent drift.
+- Iteration Guide tells future agents how to extend.
+- Known Gaps lists real uncertainty.
+- Token references resolve.
+- Official lint ran or inability is explicit.
+- Independent critic has no blocker.
+- A new page could be designed coherently from the document alone.
