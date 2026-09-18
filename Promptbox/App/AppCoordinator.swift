@@ -17,6 +17,7 @@ final class AppCoordinator {
     private var launcherPanel: FloatingPanelController?
     private var editorPanel: FloatingPanelController?
 
+    private var activationObserver: NSObjectProtocol?
     private var launcherHotkey: GlobalHotkey?
     private var editorHotkey: GlobalHotkey?
     private var didStart = false
@@ -44,19 +45,31 @@ final class AppCoordinator {
         didStart = true
 
         registerHotkeys()
+        observeOtherAppsActivating()
         showLauncher()
     }
 
-    /// O launcher some quando o usuário vai para outro app (PRD §4.3). O editor
-    /// fica: ele pode ter texto não salvo.
+    /// O launcher some quando **outro app** assume o primeiro plano (PRD §4.3).
+    /// O editor fica: ele pode ter texto não salvo.
     ///
-    /// A confirmação é adiada de propósito: trocar a política de ativação faz o
-    /// app piscar inativo por um instante, e sem essa checagem o painel recém
-    /// aberto se esconderia sozinho.
-    func appDidResignActive() {
-        Task { @MainActor [weak self] in
-            guard !NSApp.isActive else { return }
-            self?.hideLauncher()
+    /// Escutar "outro app ativou" em vez de "este app desativou" é o que torna isso
+    /// confiável: trocar a política de ativação faz o Promptbox piscar inativo, e
+    /// reagir a esse piscar escondia o painel que tinha acabado de abrir.
+    private func observeOtherAppsActivating() {
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            // Só o identificador atravessa para a main actor: `Notification` e
+            // `NSRunningApplication` não são `Sendable`.
+            let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let bundleIdentifier = activated?.bundleIdentifier
+
+            MainActor.assumeIsolated {
+                guard bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+                self?.hideLauncher()
+            }
         }
     }
 

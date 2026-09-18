@@ -406,3 +406,26 @@ existiam apenas para desfazer o isolamento imposto pelo projeto.
 
 Decisão: o Promptbox compila de Swift 6.1 em diante, sem depender de recursos
 do toolchain mais recente.
+
+### Regressão: o launcher se escondia sozinho ao abrir
+
+O "sumir ao trocar de app" foi implementado reagindo a `applicationDidResignActive`.
+Só que trocar a política de ativação de `.accessory` para `.regular` — necessário
+para o painel receber teclado — faz o app piscar inativo. O resultado: o painel
+abria e se escondia no mesmo instante, e nada era inserido no app de destino.
+
+Duas correções:
+
+- a política passa a ser ajustada **antes** de exibir o painel, ordem que já
+  existia antes da refatoração;
+- o gatilho deixou de ser "este app perdeu o foco" e passou a ser
+  `NSWorkspace.didActivateApplicationNotification` filtrando o próprio bundle —
+  ou seja, "**outro** app assumiu o primeiro plano". O piscar da troca de política
+  não ativa outro app, então não há falso positivo.
+
+Uma primeira tentativa, de confirmar `NSApp.isActive` no ciclo seguinte, não
+resolveu: no momento da checagem o app ainda constava inativo.
+
+Lição: reagir à perda de foco é ambíguo, porque o próprio app provoca perdas de
+foco transitórias. Reagir à ativação de outro app é o evento que de fato descreve
+a intenção do usuário.
