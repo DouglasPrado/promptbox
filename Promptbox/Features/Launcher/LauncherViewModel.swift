@@ -53,7 +53,7 @@ final class LauncherViewModel {
         return computed
     }
 
-    nonisolated static func matches(_ term: String, in prompts: [Prompt]) -> [Prompt] {
+    static func matches(_ term: String, in prompts: [Prompt]) -> [Prompt] {
         guard !term.isEmpty else { return prompts }
 
         return prompts.filter { prompt in

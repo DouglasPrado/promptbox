@@ -4,7 +4,7 @@ import Carbon.HIToolbox
 ///
 /// Os view models trabalham com este tipo em vez de `NSEvent` para que a lógica
 /// de teclado seja testável sem servidor de janelas.
-nonisolated struct KeyStroke: Equatable, Sendable {
+struct KeyStroke: Equatable, Sendable {
 
     struct Modifiers: OptionSet, Sendable {
         let rawValue: Int
@@ -42,7 +42,7 @@ nonisolated struct KeyStroke: Equatable, Sendable {
 }
 
 /// Códigos virtuais do Carbon, nomeados. Evita repetir números mágicos.
-nonisolated enum KeyCode {
+enum KeyCode {
     static let returnKey = UInt16(kVK_Return)
     static let escape = UInt16(kVK_Escape)
     static let arrowUp = UInt16(kVK_UpArrow)

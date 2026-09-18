@@ -4,7 +4,7 @@ import Foundation
 ///
 /// `String(localized:)` mantém tudo extraível para um catálogo de tradução em vez
 /// de espalhar literais pelas views.
-nonisolated enum Strings {
+enum Strings {
 
     enum Launcher {
         static let searchPlaceholder = String(localized: "Buscar prompts...")

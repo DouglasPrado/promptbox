@@ -63,11 +63,11 @@ final class PromptRecord {
 /// Versão atual do schema. Existe para que a próxima mudança de propriedade tenha
 /// um degrau de migração declarado em vez de depender de sorte.
 enum PromptSchemaV1: VersionedSchema {
-    nonisolated static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
-    nonisolated static var models: [any PersistentModel.Type] { [PromptRecord.self] }
+    static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
+    static var models: [any PersistentModel.Type] { [PromptRecord.self] }
 }
 
 enum PromptMigrationPlan: SchemaMigrationPlan {
-    nonisolated static var schemas: [any VersionedSchema.Type] { [PromptSchemaV1.self] }
-    nonisolated static var stages: [MigrationStage] { [] }
+    static var schemas: [any VersionedSchema.Type] { [PromptSchemaV1.self] }
+    static var stages: [MigrationStage] { [] }
 }

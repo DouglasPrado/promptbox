@@ -1,6 +1,7 @@
 import AppKit
 
 /// Ciclo de vida do processo. Tudo que é decisão de produto mora no coordinator.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let coordinator = AppCoordinator()
