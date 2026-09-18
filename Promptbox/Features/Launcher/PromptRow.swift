@@ -4,7 +4,7 @@ struct PromptRow: View {
 
     let prompt: Prompt
     let isSelected: Bool
-    /// Número do atalho ⌘N, quando a linha está entre as nove primeiras.
+    /// Posição na lista, quando entre as nove primeiras: atalho ⌘1…⌘9.
     let shortcutNumber: Int?
 
     var body: some View {
@@ -35,6 +35,15 @@ struct PromptRow: View {
                 .fill(isSelected ? Palette.accent : .clear)
         )
         .contentShape(.rect)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var accessibilityLabel: String {
+        [prompt.title, prompt.description, prompt.category?.title]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     private var icon: some View {

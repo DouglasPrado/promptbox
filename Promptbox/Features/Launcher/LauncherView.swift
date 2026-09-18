@@ -62,11 +62,11 @@ struct LauncherView: View {
                             model.insert(prompt, mode: .insert)
                         }
                         .contextMenu {
-                            Button("Inserir") { model.insert(prompt, mode: .insert) }
-                            Button("Inserir e enviar") { model.insert(prompt, mode: .insertAndSend) }
+                            Button(Strings.Launcher.insert) { model.insert(prompt, mode: .insert) }
+                            Button(Strings.Launcher.insertAndSend) { model.insert(prompt, mode: .insertAndSend) }
                             Divider()
-                            Button("Editar") { model.edit(prompt) }
-                            Button("Excluir") { model.delete(prompt) }
+                            Button(Strings.Launcher.edit) { model.edit(prompt) }
+                            Button(Strings.Launcher.delete) { model.delete(prompt) }
                         }
                     }
                 }
@@ -75,6 +75,7 @@ struct LauncherView: View {
             }
             .scrollIndicators(.never)
             .frame(height: listHeight)
+            .accessibilityLabel(Strings.Launcher.listLabel)
             .onChange(of: model.selectedIndex) { _, index in
                 guard model.results.indices.contains(index) else { return }
                 withAnimation(.easeOut(duration: 0.12)) {
@@ -89,14 +90,14 @@ struct LauncherView: View {
             Image(systemName: "text.magnifyingglass")
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(Palette.textTertiary)
-            Text("Nenhum prompt encontrado")
+            Text(Strings.Launcher.emptyTitle)
                 .font(Typography.rowTitle)
                 .foregroundStyle(Palette.textSecondary)
             Button { model.newPrompt() } label: {
                 HStack(spacing: Metrics.spacingS) {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .bold))
-                    Text("Criar prompt novo")
+                    Text(Strings.Launcher.emptyAction)
                         .font(Typography.rowSubtitle)
                     ShortcutBadge(keys: ["⌘", "N"])
                 }

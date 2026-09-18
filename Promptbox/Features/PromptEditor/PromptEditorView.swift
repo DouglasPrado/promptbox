@@ -9,19 +9,20 @@ struct PromptEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingL) {
             header
-            field(label: "Título") {
+            field(label: Strings.Editor.titleField) {
                 AppKitTextField(
                     text: $model.title,
-                    placeholder: "Implementar Story",
+                    placeholder: Strings.Editor.titlePlaceholder,
                     focusToken: focusToken
                 )
+                .accessibilityLabel(Strings.Editor.titleField)
                 .padding(.horizontal, Metrics.spacingM)
                 .frame(height: Metrics.fieldHeight)
                 .background(fieldBackground)
             }
-            field(label: "Categoria") { categoryPicker }
-            field(label: "Ícone") { symbolPicker }
-            field(label: "Conteúdo") { contentEditor }
+            field(label: Strings.Editor.categoryField) { categoryPicker }
+            field(label: Strings.Editor.symbolField) { symbolPicker }
+            field(label: Strings.Editor.contentField) { contentEditor }
             actions
         }
         .padding(Metrics.spacingXL)
@@ -58,7 +59,7 @@ struct PromptEditorView: View {
                 Text(model.heading)
                     .font(Typography.modalTitle)
                     .foregroundStyle(Palette.textPrimary)
-                Text("Seu prompt, sempre à mão")
+                Text(Strings.Editor.subtitle)
                     .font(Typography.modalSubtitle)
                     .foregroundStyle(Palette.textSecondary)
             }
@@ -86,7 +87,7 @@ struct PromptEditorView: View {
             Image(systemName: model.category?.symbol ?? "tag")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(model.category?.tint ?? Palette.textTertiary)
-            Text(model.category?.title ?? "Sem categoria")
+            Text(model.category?.title ?? Strings.Editor.noCategory)
                 .font(Typography.field)
                 .foregroundStyle(model.category == nil ? Palette.textTertiary : Palette.textPrimary)
             Spacer()
@@ -99,7 +100,7 @@ struct PromptEditorView: View {
         .background(fieldBackground)
         .overlay {
             Menu {
-                Button("Sem categoria") { model.category = nil }
+                Button(Strings.Editor.noCategory) { model.category = nil }
                 Divider()
                 ForEach(PromptCategory.allCases) { category in
                     Button {
@@ -139,19 +140,23 @@ struct PromptEditorView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(symbol)
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
+        .accessibilityLabel(Strings.Editor.symbolField)
     }
 
     private var contentEditor: some View {
         VStack(alignment: .trailing, spacing: Metrics.spacingXS) {
             AppKitTextView(text: $model.content)
+                .accessibilityLabel(Strings.Editor.contentField)
                 .frame(height: 180)
                 .padding(.horizontal, Metrics.spacingS)
                 .padding(.vertical, Metrics.spacingXS)
                 .background(fieldBackground)
 
-            Text("\(model.characterCount) caracteres")
+            Text(Strings.Editor.characterCount(model.characterCount))
                 .font(Typography.counter)
                 .foregroundStyle(Palette.textTertiary)
         }
@@ -163,7 +168,7 @@ struct PromptEditorView: View {
                 Button { model.delete() } label: {
                     HStack(spacing: Metrics.spacingXS + 2) {
                         Image(systemName: "trash")
-                        Text("Excluir")
+                        Text(Strings.Editor.delete)
                     }
                     .font(Typography.button)
                     .foregroundStyle(Palette.categoryRed)
@@ -177,7 +182,7 @@ struct PromptEditorView: View {
             Spacer()
 
             Button { model.cancel() } label: {
-                Text("Cancelar")
+                Text(Strings.Editor.cancel)
                     .font(Typography.button)
                     .foregroundStyle(Palette.textPrimary)
                     .padding(.horizontal, Metrics.spacingL)
@@ -188,7 +193,7 @@ struct PromptEditorView: View {
 
             Button { model.save() } label: {
                 HStack(spacing: Metrics.spacingS) {
-                    Text("Salvar Prompt")
+                    Text(Strings.Editor.save)
                     ShortcutBadge(keys: ["⌘", "↵"], style: .onAccent)
                 }
                 .font(Typography.button)

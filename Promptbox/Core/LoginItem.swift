@@ -20,7 +20,7 @@ enum LoginItem {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("[Promptbox] Launch at Login falhou: \(error.localizedDescription)")
+            Log.loginItem.error("Falha ao alterar o item de login: \(error.localizedDescription, privacy: .public)")
         }
         return isEnabled
     }

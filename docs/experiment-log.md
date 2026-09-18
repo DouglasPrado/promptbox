@@ -331,3 +331,64 @@ antes de exibir.
 Não consegui validar por automação: com a máquina em uso, o foco de teclado não
 chega ao painel durante os testes roteirizados. Precisa de uma passada manual
 (⌘⌫ com um prompt selecionado).
+
+---
+
+## Passada de qualidade
+
+**Data:** 2026-09-18
+**Escopo:** os 25 pontos levantados na revisão de arquitetura e código.
+
+### Bugs corrigidos
+
+1. **Semeadura marcava sucesso sem ter salvado.** A flag em `UserDefaults` era
+   gravada fora da verificação de sucesso: uma falha na primeira gravação deixaria
+   o app permanentemente vazio. Agora a flag só entra depois do `save()` dar certo,
+   e uma falha faz `rollback()` para tentar de novo na próxima execução.
+2. **Excluir pelo editor usava o prompt digitado.** O `delete()` montava um prompt
+   a partir do formulário, então renomear e clicar Excluir mostrava o título novo
+   na confirmação enquanto apagava o registro antigo. O view model passou a guardar
+   o prompt original inteiro.
+3. **Fechar o editor sempre abria o launcher.** Agora a origem é registrada: aberto
+   por ⇧⌘P de fora, fechar não abre nada.
+4. **O painel não sumia ao trocar de app** (PRD §4.3). O launcher some quando o app
+   perde o foco; o editor fica, porque pode ter texto não salvo.
+5. **Corrida na restauração do clipboard.** Duas inserções em menos de 800 ms
+   disputavam o mesmo backup. A inserção em voo agora é cancelada e o clipboard
+   original é preservado até a última restauração.
+6. **Temporização cega.** Os `sleep` fixos deram lugar a espera pela ativação real
+   do app de destino, com timeout, e o retorno de `activate()` é verificado.
+
+### Arquitetura
+
+- `AppEnvironment` virou `AppCoordinator`, com `Dialogs` (alertas) e
+  `ActivationPolicy` (política de ativação) como donos próprios.
+- Os view models deixaram de conhecer AppKit: recebem `KeyStroke`, um valor puro.
+- Closures opcionais viraram protocolos de delegate — contrato verificado pelo compilador.
+- `PromptRecord` ganhou `VersionedSchema` e plano de migração.
+- `touchedAt` virou coluna: a ordenação por recentes acontece no banco.
+
+### Qualidade
+
+- **Target de testes** com 25 testes (busca, seleção, atalhos, editor, store).
+- **CI no GitHub Actions**: testes e build Release a cada PR.
+- `os.Logger` no lugar de `print`/`NSLog`, com dados do usuário marcados `.private`.
+- Strings de interface centralizadas com `String(localized:)` e catálogo criado.
+- Rótulos de acessibilidade nas linhas, botões e campos.
+- `⌘1…⌘9` passaram a ler o código físico da tecla, não o caractere.
+- Removido código morto (`_ = context`, `toggle()` sem uso, `@State` só escrito),
+  renomeado `record` ambíguo, cache de resultados por revisão do store.
+
+### Achado durante a verificação
+
+**O build Release estava quebrado** — e ninguém saberia sem CI. O otimizador SIL do
+Swift 6.3 quebra ao compilar o destrutor de `FloatingPanelController` quando a
+classe é genérica (`EarlyPerfInliner`). Só o inicializador precisava do parâmetro
+de tipo; a classe deixou de ser genérica e o Release voltou a compilar.
+
+### Verificado
+
+- 25 testes passando; build Debug e Release sem warnings.
+- App rodando com os dados reais do usuário: a migração de schema com a coluna nova
+  preservou os 4 prompts existentes.
+- ⌥Space, busca e inserção continuam funcionando depois da refatoração.

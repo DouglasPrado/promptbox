@@ -1,8 +1,8 @@
 import Foundation
 import SwiftData
 
-/// Forma persistida do prompt (PRD §34). O app continua trabalhando com o struct
-/// `Prompt`; este modelo existe só na fronteira com o SwiftData.
+/// Forma persistida do prompt (PRD §34). O app trabalha com o struct `Prompt`;
+/// este modelo existe só na fronteira com o SwiftData.
 @Model
 final class PromptRecord {
 
@@ -18,10 +18,18 @@ final class PromptRecord {
     var updatedAt: Date = Date.now
     var lastUsedAt: Date?
 
+    /// Ordem do launcher: o mais recentemente usado ou editado vem primeiro
+    /// (PRD §9 e §44).
+    ///
+    /// Guardado em vez de calculado para que a ordenação aconteça no banco, e não
+    /// carregando a tabela inteira na memória a cada leitura.
+    var touchedAt: Date = Date.now
+
     init(prompt: Prompt, now: Date = .now) {
         id = prompt.id
         createdAt = now
         updatedAt = now
+        touchedAt = now
         apply(prompt, now: now)
     }
 
@@ -32,6 +40,12 @@ final class PromptRecord {
         categoryRaw = prompt.category?.rawValue
         symbol = prompt.symbol
         updatedAt = now
+        touchedAt = max(now, lastUsedAt ?? .distantPast)
+    }
+
+    func markUsed(_ now: Date = .now) {
+        lastUsedAt = now
+        touchedAt = now
     }
 
     var prompt: Prompt {
@@ -44,10 +58,16 @@ final class PromptRecord {
             symbol: symbol
         )
     }
+}
 
-    /// Ordem do launcher: o que foi usado ou criado mais recentemente vem primeiro
-    /// (PRD §9 e §44).
-    var touchedAt: Date {
-        max(lastUsedAt ?? .distantPast, updatedAt)
-    }
+/// Versão atual do schema. Existe para que a próxima mudança de propriedade tenha
+/// um degrau de migração declarado em vez de depender de sorte.
+enum PromptSchemaV1: VersionedSchema {
+    nonisolated static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
+    nonisolated static var models: [any PersistentModel.Type] { [PromptRecord.self] }
+}
+
+enum PromptMigrationPlan: SchemaMigrationPlan {
+    nonisolated static var schemas: [any VersionedSchema.Type] { [PromptSchemaV1.self] }
+    nonisolated static var stages: [MigrationStage] { [] }
 }

@@ -1,65 +1,36 @@
 import AppKit
 
+/// Ciclo de vida do processo. Tudo que é decisão de produto mora no coordinator.
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    let environment = AppEnvironment()
-
-    private var launcherHotkey: GlobalHotkey?
-    private var editorHotkey: GlobalHotkey?
+    let coordinator = AppCoordinator()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Sem ícone no Dock: o Promptbox roda em background, com a barra de
         // menus como porta de entrada (PRD §42).
         NSApp.setActivationPolicy(.accessory)
-        registerHotkeys()
-        environment.bootstrap()
+
+        // Sob teste o app é apenas o host do bundle: abrir painel e registrar
+        // hotkey global atrapalharia quem está rodando a suíte (e a CI).
+        guard !Self.isRunningTests else { return }
+
+        coordinator.start()
     }
 
-    /// ⌥Space abre a busca, ⇧⌘P abre o editor (PRD §35). Se a combinação já
-    /// estiver tomada por outro app, o registro falha e resta a barra de menus.
-    private func registerHotkeys() {
-        launcherHotkey = GlobalHotkey(
-            keyCode: Hotkey.launcherKey,
-            modifiers: Hotkey.launcherModifiers
-        ) { [weak self] in
-            self?.environment.toggleLauncher()
-        }
-
-        environment.isLauncherHotkeyActive = launcherHotkey != nil
-
-        editorHotkey = GlobalHotkey(
-            keyCode: Hotkey.editorKey,
-            modifiers: Hotkey.editorModifiers
-        ) { [weak self] in
-            self?.environment.showEditor()
-        }
-
-        guard launcherHotkey == nil else { return }
-
-        // Uma execução anterior recém-encerrada pode ainda estar segurando a
-        // combinação; vale uma segunda tentativa antes de desistir.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1))
-            guard let self, self.launcherHotkey == nil else { return }
-
-            self.launcherHotkey = GlobalHotkey(
-                keyCode: Hotkey.launcherKey,
-                modifiers: Hotkey.launcherModifiers
-            ) { [weak self] in
-                self?.environment.toggleLauncher()
-            }
-
-            self.environment.isLauncherHotkeyActive = self.launcherHotkey != nil
-            if self.launcherHotkey == nil {
-                NSLog("[Promptbox] ⌥Space já está em uso por outro app.")
-            }
-        }
+    private static var isRunningTests: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
     }
 
-    /// Abrir o app de novo (Finder, Spotlight) reabre o launcher, em vez de não
-    /// fazer nada. A hotkey global ⌥Space ainda é Fase 3 (PRD §35).
+    func applicationDidResignActive(_ notification: Notification) {
+        coordinator.appDidResignActive()
+    }
+
+    /// Abrir o app de novo (Finder, Spotlight) reabre o launcher em vez de não
+    /// fazer nada.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        environment.showLauncher()
+        coordinator.showLauncher()
         return true
     }
 
