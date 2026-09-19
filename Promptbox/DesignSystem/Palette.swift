@@ -25,6 +25,12 @@ enum Palette {
     static let accent = Color(hex: 0x0A70F5)
     static let accentHover = Color(hex: 0x2A86FF)
 
+    // Voice Insert
+    static let recording = Color(hex: 0xFF453A)
+    static let waveform = Color(hex: 0x4A9EFF)
+    /// Mais forte que `separator`: sobre o blur do overlay, 6% de branco some.
+    static let voiceDivider = Color.white.opacity(0.14)
+
     // Cores de categoria (usadas nos ícones do launcher)
     static let categoryBlue = Color(hex: 0x3B82F6)
     static let categoryRed = Color(hex: 0xEF4444)

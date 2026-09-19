@@ -44,9 +44,43 @@ enum Dialogs {
         // mutável, rejeitada pelo modo de concorrência do Swift 6.
         _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
 
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+        openPrivacySettings("Privacy_Accessibility")
+    }
+
+    /// Explica microfone e reconhecimento de fala (VOICE-INSERT §Permissões).
+    ///
+    /// Separado do alerta de Acessibilidade porque cada permissão abre um painel
+    /// diferente dos Ajustes, e mandar o usuário para o painel errado é pior do
+    /// que não mandar para lugar nenhum.
+    static func requestVoicePermission(_ permission: VoicePermission) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: Strings.VoicePermissionAlert.openSettings)
+        alert.addButton(withTitle: Strings.VoicePermissionAlert.later)
+
+        let pane: String
+
+        switch permission {
+        case .microphone:
+            alert.messageText = Strings.VoicePermissionAlert.microphoneTitle
+            alert.informativeText = Strings.VoicePermissionAlert.microphoneMessage
+            pane = "Privacy_Microphone"
+
+        case .speechRecognition:
+            alert.messageText = Strings.VoicePermissionAlert.speechTitle
+            alert.informativeText = Strings.VoicePermissionAlert.speechMessage
+            pane = "Privacy_SpeechRecognition"
         }
+
+        guard alert.runAbovePanels() == .alertFirstButtonReturn else { return }
+        openPrivacySettings(pane)
+    }
+
+    private static func openPrivacySettings(_ pane: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 

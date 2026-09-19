@@ -29,6 +29,19 @@ enum Metrics {
     static let spacingL: CGFloat = 16
     static let spacingXL: CGFloat = 20
 
+    // Voice Insert (docs/screen-04.png)
+    static let voiceOverlayWidth: CGFloat = 540
+    static let voiceOverlayHeight: CGFloat = 52
+    static let voiceOverlayCornerRadius: CGFloat = 18
+    static let voiceOverlayBottomInset: CGFloat = 120
+    static let voiceDividerHeight: CGFloat = 22
+    static let recordingDotSize: CGFloat = 9
+    static let waveformHeight: CGFloat = 20
+    static let waveformBarWidth: CGFloat = 2.5
+    static let waveformBarSpacing: CGFloat = 2.5
+    /// Altura em silêncio. Abaixo disso a waveform vira uma linha pontilhada.
+    static let waveformMinBar: CGFloat = 3.5
+
     // Campos e botões
     static let fieldHeight: CGFloat = 38
     static let fieldCornerRadius: CGFloat = 8

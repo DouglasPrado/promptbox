@@ -9,7 +9,7 @@
 #
 # Com um certificado próprio, a identidade para de mudar e a autorização persiste.
 #
-# Uso:  ./scripts/sign-local.sh [caminho/para/Promptbox.app]
+# Uso:  ./scripts/sign-local.sh [caminho/para/Promptbox.app] [caminho/para/.entitlements]
 #
 # Para desfazer:
 #   security delete-keychain ~/Library/Keychains/promptbox-signing.keychain-db
@@ -18,6 +18,7 @@
 set -euo pipefail
 
 APP="${1:-build/Promptbox.app}"
+ENTITLEMENTS="${2:-$(dirname "$0")/../Promptbox/Promptbox.entitlements}"
 KEYCHAIN="$HOME/Library/Keychains/promptbox-signing.keychain-db"
 KEYCHAIN_SHORT="promptbox-signing.keychain"
 KEYCHAIN_PASSWORD="promptbox-local"
@@ -27,6 +28,11 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 if [ ! -d "$APP" ]; then
   echo "App não encontrado em: $APP" >&2
+  exit 1
+fi
+
+if [ ! -f "$ENTITLEMENTS" ]; then
+  echo "Entitlements não encontrados em: $ENTITLEMENTS" >&2
   exit 1
 fi
 
@@ -80,13 +86,47 @@ else
   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 fi
 
+# Assinar de dentro para fora, sem `--deep` e sem Hardened Runtime.
+#
+# Duas armadilhas, as duas descobertas com o app morrendo no lançamento:
+#
+# 1. Builds de Debug do Xcode 26 colocam `Promptbox.debug.dylib` (e o dylib de
+#    Previews) ao lado do executável, em `Contents/MacOS/`. `--deep` não alcança
+#    nada ali — ele só desce por `Frameworks/`, `PlugIns/` e afins. O binário
+#    principal saía com a identidade local e os dylibs com a assinatura ad-hoc
+#    do Xcode.
+#
+# 2. `--options runtime` liga junto a validação de biblioteca, que só aceita
+#    dylibs do mesmo Team ID. Um certificado autoassinado não tem Team ID
+#    nenhum, então nem assinar os dylibs com a mesma identidade resolve: o dyld
+#    recusa a combinação ("different Team IDs").
+#
+# Sem Hardened Runtime o microfone não exige entitlement — quem exige é ele. O
+# `Promptbox.entitlements` continua valendo para os builds assinados pelo Xcode,
+# que é onde o Hardened Runtime de fato está ligado; aqui ele vai junto só para
+# a assinatura local não divergir do projeto.
 echo "==> Assinando $APP"
-codesign --force --deep --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+
+while IFS= read -r -d '' NESTED; do
+  echo "    $(basename "$NESTED")"
+  codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" "$NESTED"
+done < <(find "$APP/Contents" -type f -name "*.dylib" -print0)
+
+codesign --force \
+  --entitlements "$ENTITLEMENTS" \
+  --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+
+echo "==> Verificando"
+codesign --verify --deep --strict --verbose=1 "$APP"
 
 echo "==> Assinatura resultante"
-codesign -dv --verbose=2 "$APP" 2>&1 | grep -E "Identifier|Authority|Signature" || true
+codesign -dv --verbose=2 "$APP" 2>&1 | grep -E "Identifier|Authority|Signature|flags" || true
+
+echo "==> Entitlements gravados"
+codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -p - || true
 
 echo
 echo "Pronto. Autorize o app em Ajustes do Sistema → Privacidade e Segurança →"
-echo "Acessibilidade. A autorização passa a sobreviver aos próximos builds,"
-echo "desde que você rode este script depois de cada build."
+echo "Acessibilidade (inserir texto), Microfone e Reconhecimento de Fala (⌥V)."
+echo "As autorizações passam a sobreviver aos próximos builds, desde que você"
+echo "rode este script depois de cada build."

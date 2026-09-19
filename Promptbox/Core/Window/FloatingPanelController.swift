@@ -22,22 +22,30 @@ final class FloatingPanelController {
     private let panel: FloatingPanel
     private let hostingController: NSViewController
 
-    /// Fração da altura da tela usada como margem superior. O painel fica acima
-    /// do centro óptico, como Spotlight e Raycast.
-    private let topInsetRatio: CGFloat
+    /// Onde o painel nasce na tela.
+    enum Placement {
+        /// Centralizado, com o topo a uma fração da altura da tela — acima do
+        /// centro óptico, como Spotlight e Raycast.
+        case belowTop(ratio: CGFloat)
+        /// Centralizado junto à base, a `inset` pontos dela. Para avisos que não
+        /// devem cobrir o que o usuário está lendo.
+        case aboveBottom(inset: CGFloat)
+    }
+
+    private let placement: Placement
 
     var isVisible: Bool { panel.isVisible }
 
     init<Content: View>(
         identifier: String,
         width: CGFloat,
-        topInsetRatio: CGFloat = 0.20,
+        placement: Placement = .belowTop(ratio: 0.20),
         onCancel: @escaping () -> Void,
         keyHandler: @escaping (KeyStroke) -> Bool,
         @ViewBuilder content: () -> Content
     ) {
         self.identifier = identifier
-        self.topInsetRatio = topInsetRatio
+        self.placement = placement
 
         let hosting = NSHostingController(rootView: content())
         hosting.sizingOptions = [.preferredContentSize]
@@ -54,7 +62,8 @@ final class FloatingPanelController {
     }
 
     func show() {
-        center()
+        sizeToContent()
+        place()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         focus()
@@ -64,15 +73,38 @@ final class FloatingPanelController {
         panel.orderOut(nil)
     }
 
-    /// Centraliza horizontalmente e ancora o topo em `topInsetRatio` da tela em
-    /// que está o cursor — em vários monitores, o painel abre onde o usuário está.
-    func center() {
+    /// Dá ao painel a altura do conteúdo antes de posicioná-lo.
+    ///
+    /// O SwiftUI só dimensiona quando a janela aparece, então a primeira exibição
+    /// posicionaria o painel com a altura inicial de 1 pt. Como o AppKit mantém o
+    /// topo fixo ao redimensionar, o painel nascia dezenas de pontos fora do lugar
+    /// e saltava no uso seguinte — medido: 51 pt no overlay de voz.
+    private func sizeToContent() {
+        hostingController.view.layoutSubtreeIfNeeded()
+
+        let height = max(
+            hostingController.preferredContentSize.height,
+            hostingController.view.fittingSize.height
+        )
+
+        guard height > 1 else { return }
+        panel.setContentSize(NSSize(width: panel.frame.width, height: height))
+    }
+
+    /// Centraliza horizontalmente na tela em que está o cursor — em vários
+    /// monitores, o painel abre onde o usuário está (VOICE-INSERT §Múltiplos monitores).
+    func place() {
         guard let screen = screenUnderCursor() else { return }
 
         let visible = screen.visibleFrame
+
         let size = panel.frame.size
         let x = visible.midX - size.width / 2
-        let y = visible.maxY - visible.height * topInsetRatio - size.height
+
+        let y = switch placement {
+        case .belowTop(let ratio): visible.maxY - visible.height * ratio - size.height
+        case .aboveBottom(let inset): visible.minY + inset
+        }
 
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: max(visible.minY, y).rounded()))
     }

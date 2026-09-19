@@ -27,6 +27,8 @@ struct KeyStroke: Equatable, Sendable {
     }
 
     var hasCommand: Bool { modifiers.contains(.command) }
+    var hasControl: Bool { modifiers.contains(.control) }
+    var hasShift: Bool { modifiers.contains(.shift) }
 
     func matches(_ letter: Character) -> Bool {
         characters?.lowercased() == String(letter)

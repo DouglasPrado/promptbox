@@ -19,6 +19,11 @@ struct PromptboxApp: App {
             }
             .keyboardShortcut("p", modifiers: [.command, .shift])
 
+            Button(voiceTitle) {
+                appDelegate.coordinator.toggleVoiceInsert()
+            }
+            .keyboardShortcut("v", modifiers: .option)
+
             Divider()
 
             accessibilityStatus
@@ -55,6 +60,12 @@ struct PromptboxApp: App {
         appDelegate.coordinator.isLauncherHotkeyActive
             ? Strings.Menu.search
             : Strings.Menu.searchHotkeyTaken
+    }
+
+    private var voiceTitle: String {
+        appDelegate.coordinator.isVoiceHotkeyActive
+            ? Strings.Menu.voiceInsert
+            : Strings.Menu.voiceInsertHotkeyTaken
     }
 
     /// Lê o estado real do sistema: o usuário pode desligar o item de login pelos

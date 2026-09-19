@@ -15,6 +15,13 @@ enum Typography {
     static let footer = Font.system(size: 11.5, weight: .regular)
     static let shortcut = Font.system(size: 11, weight: .medium)
 
+    // Voice Insert
+    static let voiceStatus = Font.system(size: 13, weight: .medium)
+    /// Dígitos monoespaçados: sem isso o timer treme a cada segundo.
+    static let voiceTimer = Font.system(size: 12.5, weight: .regular).monospacedDigit()
+    static let voiceHint = Font.system(size: 12.5, weight: .regular)
+    static let voiceGlyph = Font.system(size: 13, weight: .regular)
+
     // Conteúdo de prompt
     static let promptContent = Font.system(size: 13, weight: .regular, design: .monospaced)
     static let counter = Font.system(size: 11, weight: .regular, design: .monospaced)

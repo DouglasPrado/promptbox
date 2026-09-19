@@ -2,10 +2,15 @@ import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 
-/// Insere o prompt no app que estava em foco antes do Promptbox abrir (PRD §36–40).
+/// Insere texto no app que estava em foco antes do Promptbox abrir (PRD §36–40).
 ///
-/// Caminho: guardar o clipboard → copiar o prompt → devolver o foco ao app anterior
+/// Caminho: guardar o clipboard → copiar o texto → devolver o foco ao app anterior
 /// → ⌘V → (opcional) Enter → restaurar o clipboard.
+///
+/// É o injetor compartilhado: prompt salvo e Voice Insert entram pelo mesmo lugar
+/// (VOICE-INSERT §TextInjector compartilhado). O destino não precisa de um
+/// `TargetContext` próprio — o app anterior basta, porque o macOS devolve o foco
+/// ao campo que já estava ativo quando ele volta ao primeiro plano.
 @MainActor
 final class PromptInserter {
 
@@ -35,6 +40,11 @@ final class PromptInserter {
 
     @discardableResult
     func insert(_ prompt: Prompt, mode: InsertMode) -> Outcome {
+        insert(text: prompt.content, mode: mode)
+    }
+
+    @discardableResult
+    func insert(text: String, mode: InsertMode) -> Outcome {
         guard hasPermission else { return .permissionRequired }
 
         // Se já há inserção em voo, o clipboard guardado é o do usuário — não o
@@ -46,7 +56,7 @@ final class PromptInserter {
         let target = previousApp
 
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(prompt.content, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
 
         // Devolve a ativação explicitamente: no macOS 14+ um app só ativa outro
         // com esse consentimento.

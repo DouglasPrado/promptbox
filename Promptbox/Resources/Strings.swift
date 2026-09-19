@@ -40,14 +40,49 @@ enum Strings {
         }
     }
 
+    enum Voice {
+        static let recording = String(localized: "Gravando...")
+        static let transcribing = String(localized: "Transcrevendo...")
+        static let insert = String(localized: "Inserir")
+        static let cancel = String(localized: "Cancelar")
+        static let noSpeech = String(localized: "Nenhuma fala detectada")
+        static let failed = String(localized: "Não foi possível transcrever o áudio")
+        static let overlayLabel = String(localized: "Ditado por voz")
+    }
+
     enum Menu {
         static let search = String(localized: "Buscar Prompt")
         static let searchHotkeyTaken = String(localized: "Buscar Prompt (⌥Space em uso por outro app)")
         static let newPrompt = String(localized: "Novo Prompt")
+        static let voiceInsert = String(localized: "Ditar e Inserir")
+        static let voiceInsertHotkeyTaken = String(localized: "Ditar e Inserir (⌥V em uso por outro app)")
         static let launchAtLogin = String(localized: "Abrir ao iniciar o Mac")
         static let quit = String(localized: "Sair do Promptbox")
         static let accessibilityGranted = String(localized: "Acessibilidade: autorizada")
         static let accessibilityMissing = String(localized: "Acessibilidade: autorizar…")
+    }
+
+    enum VoicePermissionAlert {
+        static let microphoneTitle = String(localized: "Promptbox precisa de acesso ao microfone")
+        static let microphoneMessage = String(localized: """
+        Para ditar um prompt, o Promptbox precisa ser autorizado em:
+
+        Ajustes do Sistema → Privacidade e Segurança → Microfone
+
+        O áudio é descartado assim que a transcrição termina.
+        """)
+
+        static let speechTitle = String(localized: "Promptbox precisa de acesso ao reconhecimento de fala")
+        static let speechMessage = String(localized: """
+        Para transformar a sua fala em texto, o Promptbox precisa ser autorizado em:
+
+        Ajustes do Sistema → Privacidade e Segurança → Reconhecimento de Fala
+
+        Quando o seu Mac suporta reconhecimento local, nada é enviado para fora.
+        """)
+
+        static let openSettings = String(localized: "Abrir Ajustes")
+        static let later = String(localized: "Depois")
     }
 
     enum DeleteAlert {
