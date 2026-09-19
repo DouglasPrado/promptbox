@@ -2,4 +2,5 @@
 enum PanelID {
     static let launcher = "launcher"
     static let editor = "editor"
+    static let voice = "voice"
 }

@@ -11,4 +11,5 @@ enum Log {
     static let insertion = Logger(subsystem: subsystem, category: "insertion")
     static let hotkey = Logger(subsystem: subsystem, category: "hotkey")
     static let loginItem = Logger(subsystem: subsystem, category: "login-item")
+    static let voice = Logger(subsystem: subsystem, category: "voice")
 }

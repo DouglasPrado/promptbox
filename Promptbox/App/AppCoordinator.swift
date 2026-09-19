@@ -16,9 +16,12 @@ final class AppCoordinator {
 
     private var launcherPanel: FloatingPanelController?
     private var editorPanel: FloatingPanelController?
+    private var voicePanel: FloatingPanelController?
 
+    private var focusObserver: NSObjectProtocol?
     private var launcherHotkey: GlobalHotkey?
     private var editorHotkey: GlobalHotkey?
+    private var voiceHotkey: GlobalHotkey?
     private var didStart = false
 
     /// De onde o editor foi aberto, para saber ao que voltar quando fechar.
@@ -29,9 +32,22 @@ final class AppCoordinator {
 
     private var editorOrigin: EditorOrigin = .standalone
 
+
+    /// Estado da permissão de Acessibilidade, exposto no menu para que a resposta
+    /// venha do app e não de uma leitura do painel de Ajustes — os dois divergem
+    /// quando a autorização aponta para um binário anterior.
+    var hasInsertionPermission: Bool { inserter.hasPermission }
+
+    func requestInsertionPermission() {
+        Dialogs.requestAccessibilityPermission()
+    }
+
     /// Falso quando ⌥Space já pertence a outro app — o menu avisa em vez de
     /// deixar o usuário achar que a hotkey existe.
     private(set) var isLauncherHotkeyActive = true
+
+    /// O mesmo para ⌥V (VOICE-INSERT §Atalhos).
+    private(set) var isVoiceHotkeyActive = true
 
     init(store: PromptStore = PromptStore(), inserter: PromptInserter = PromptInserter()) {
         self.store = store
@@ -44,13 +60,45 @@ final class AppCoordinator {
         didStart = true
 
         registerHotkeys()
+        observePanelsLosingFocus()
         showLauncher()
     }
 
-    /// O launcher some quando o usuário vai para outro app (PRD §4.3). O editor
-    /// fica: ele pode ter texto não salvo.
-    func appDidResignActive() {
-        hideLauncher()
+    /// O launcher some quando deixa de ser a janela com o foco de teclado (PRD §4.3).
+    ///
+    /// Esse é o sinal que descreve a intenção do usuário. Duas alternativas foram
+    /// testadas e falharam: reagir a `applicationDidResignActive` escondia o painel
+    /// no piscar da troca de política de ativação, e reagir à ativação de outro app
+    /// o fechava sozinho sempre que o Promptbox não conseguia segurar o primeiro
+    /// plano — o painel abria e sumia em menos de um segundo.
+    ///
+    /// Se o painel nunca chega a receber o foco, ele também não o perde, e fica
+    /// aberto até ESC ou ⌥Space. É o comportamento menos surpreendente dos três.
+    ///
+    /// O overlay de voz segue a mesma regra, por um motivo mais duro: sem foco de
+    /// teclado não chegam nem ⌃↵ nem Esc, e a gravação ficaria presa até o limite
+    /// de cinco minutos. Perder o foco vira cancelamento — mas só enquanto grava,
+    /// nunca depois do ⌃↵ (ver `cancelIfRecording`).
+    private func observePanelsLosingFocus() {
+        focusObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let panel = notification.object as? FloatingPanel
+
+            MainActor.assumeIsolated {
+                // Um alerta modal do próprio app também tira o foco do painel;
+                // nesse caso quem decide o que fechar é o fluxo do alerta.
+                guard NSApp.modalWindow == nil else { return }
+
+                switch panel?.identifier?.rawValue {
+                case PanelID.launcher: self?.hideLauncher()
+                case PanelID.voice: self?.voiceModel.cancelIfRecording()
+                default: break
+                }
+            }
+        }
     }
 
     // MARK: - Navegação
@@ -64,8 +112,11 @@ final class AppCoordinator {
     func showLauncher() {
         // Precisa vir antes de o painel ativar o Promptbox (PRD §36).
         inserter.captureFrontmostApp()
-        launcher.show()
+
+        // A política vem antes de exibir: um app `.accessory` não consegue se
+        // ativar, e trocar depois faria o painel aparecer sem o teclado.
         activation.panelDidShow(PanelID.launcher)
+        launcher.show()
     }
 
     func hideLauncher() {
@@ -84,8 +135,9 @@ final class AppCoordinator {
 
         editorModel.load(prompt)
         hideLauncher()
-        editor.show()
+
         activation.panelDidShow(PanelID.editor)
+        editor.show()
     }
 
     private func closeEditor() {
@@ -97,6 +149,43 @@ final class AppCoordinator {
         if editorOrigin == .launcher {
             showLauncher()
         }
+    }
+
+    // MARK: - Voice Insert (VOICE-INSERT)
+
+    /// ⌥V grava; ⌥V de novo cancela.
+    ///
+    /// O documento só prevê ⌥V para começar, mas o overlay é um painel não-ativante:
+    /// se ele nunca virar a janela com o foco de teclado, nem ⌃↵ nem Esc chegam.
+    /// Repetir a hotkey é a saída que sempre funciona, porque ela não depende de foco.
+    func toggleVoiceInsert() {
+        guard !voiceModel.isActive else {
+            voiceModel.cancel()
+            return
+        }
+
+        // Mesma regra do launcher: registrar o destino antes de o Promptbox tomar
+        // o primeiro plano (PRD §36, VOICE-INSERT §Contexto do destino).
+        inserter.captureFrontmostApp()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            // O overlay só aparece quando há o que mostrar. Na primeira execução o
+            // sistema pede microfone e fala antes disso, e um overlay vazio atrás
+            // do diálogo de permissão seria ruído.
+            guard await self.voiceModel.begin() else { return }
+
+            self.activation.panelDidShow(PanelID.voice)
+            self.voice.show()
+        }
+    }
+
+    private func hideVoiceInsert() {
+        guard let voicePanel, voicePanel.isVisible else { return }
+
+        voicePanel.hide()
+        activation.panelDidHide(PanelID.voice)
     }
 
     private func confirmDelete(_ prompt: Prompt, closingEditor: Bool = false) {
@@ -125,6 +214,19 @@ final class AppCoordinator {
 
         if editorHotkey == nil {
             Log.hotkey.warning("⇧⌘P já está em uso por outro app.")
+        }
+
+        voiceHotkey = GlobalHotkey(
+            keyCode: Hotkey.voiceKey,
+            modifiers: Hotkey.voiceModifiers
+        ) { [weak self] in
+            self?.toggleVoiceInsert()
+        }
+
+        isVoiceHotkeyActive = voiceHotkey != nil
+
+        if voiceHotkey == nil {
+            Log.hotkey.warning("⌥V já está em uso por outro app.")
         }
 
         guard launcherHotkey == nil else { return }
@@ -167,6 +269,12 @@ final class AppCoordinator {
         return model
     }()
 
+    private lazy var voiceModel: VoiceInsertViewModel = {
+        let model = VoiceInsertViewModel()
+        model.delegate = self
+        return model
+    }()
+
     // MARK: - Painéis
 
     private var launcher: FloatingPanelController {
@@ -201,6 +309,49 @@ final class AppCoordinator {
 
         editorPanel = panel
         return panel
+    }
+
+    private var voice: FloatingPanelController {
+        if let voicePanel { return voicePanel }
+
+        let model = voiceModel
+        let panel = FloatingPanelController(
+            identifier: PanelID.voice,
+            width: Metrics.voiceOverlayWidth,
+            // Junto à base: o overlay avisa, não pede atenção, e não deve cobrir
+            // o que o usuário está lendo enquanto fala (VOICE-INSERT §Interface).
+            placement: .aboveBottom(inset: Metrics.voiceOverlayBottomInset),
+            onCancel: { [weak self] in self?.voiceModel.cancel() },
+            keyHandler: { model.handle($0) }
+        ) {
+            VoiceOverlayView(model: model)
+        }
+
+        voicePanel = panel
+        return panel
+    }
+}
+
+// MARK: - Voice Insert
+
+extension AppCoordinator: VoiceInsertViewModelDelegate {
+
+    func voiceInsertDidTranscribe(_ text: String, mode: InsertMode) {
+        guard inserter.insert(text: text, mode: mode) == .permissionRequired else { return }
+
+        // Deixa o overlay fechar antes do alerta modal aparecer.
+        Task { @MainActor in
+            Dialogs.requestAccessibilityPermission()
+        }
+    }
+
+    func voiceInsertDidRequestClose() {
+        hideVoiceInsert()
+    }
+
+    func voiceInsertDidRequirePermission(_ permission: VoicePermission) {
+        hideVoiceInsert()
+        Dialogs.requestVoicePermission(permission)
     }
 }
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Hardened Runtime está ligado, e sob ele o acesso ao microfone precisa ser
+	  declarado: sem esta chave o AVAudioEngine sobe com um formato zerado e o
+	  Voice Insert falha sem diálogo de permissão nenhum.
+
+	  Não há chave de sandbox aqui de propósito: ler o app em primeiro plano,
+	  postar eventos de teclado e restaurar o clipboard são incompatíveis com o
+	  App Sandbox.
+	-->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

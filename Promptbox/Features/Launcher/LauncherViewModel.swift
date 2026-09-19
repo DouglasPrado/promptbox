@@ -82,9 +82,12 @@ final class LauncherViewModel {
     }
 
     func insert(_ prompt: Prompt, mode: InsertMode) {
-        delegate?.launcherDidInsert(prompt, mode: mode)
+        // Fechar vem primeiro de propósito: a inserção devolve o foco ao app
+        // anterior, e isso é mais confiável com o painel já fora da tela e o
+        // Promptbox de volta ao segundo plano.
         reset()
         delegate?.launcherDidRequestClose()
+        delegate?.launcherDidInsert(prompt, mode: mode)
     }
 
     func edit(_ prompt: Prompt) {

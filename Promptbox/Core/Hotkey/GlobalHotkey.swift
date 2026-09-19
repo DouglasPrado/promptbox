@@ -93,4 +93,7 @@ enum Hotkey {
 
     static let editorKey = UInt32(kVK_ANSI_P)
     static let editorModifiers = UInt32(cmdKey | shiftKey)
+
+    static let voiceKey = UInt32(kVK_ANSI_V)
+    static let voiceModifiers = UInt32(optionKey)
 }

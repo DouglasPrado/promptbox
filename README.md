@@ -9,7 +9,8 @@
 <p align="center">
   Promptbox is a native macOS launcher that stores the prompts you keep rewriting and
   inserts them straight into the app you were already working in — Claude Code, Codex,
-  OpenCode, Ghostty, iTerm, Warp, Cursor or VS Code.
+  OpenCode, Ghostty, iTerm, Warp, Cursor or VS Code. Press <code>⌥V</code> and it does
+  the same with your voice.
 </p>
 
 <p align="center">
@@ -123,6 +124,39 @@ The clipboard you had is preserved, including non-text items.
 Plain insert is the default on purpose: you get to read the text before Claude, Codex or
 your shell receives it.
 
+### Voice Insert
+
+<p align="center">
+  <img src="./assets/promptbox-voice.png" alt="Promptbox Voice Insert overlay" width="620" />
+</p>
+
+`⌥V` starts recording immediately. Speak, press `⌃↵`, and the transcription lands in the
+field you were already typing in. `⌃⇧↵` inserts and sends. `esc` stops, discards and
+closes — no confirmation, no draft, no clipboard change.
+
+It is a voice shortcut for the focused field, not a recorder. The overlay is a thin
+translucent bar with a timer and a live waveform, and nothing else: no text area, no
+play button, nothing to click.
+
+Transcription runs through `SFSpeechRecognizer` in pt-BR, with a list of technical terms
+(`Claude Code`, `Context7`, `Next.js`, `pnpm`, `TypeScript`…) fed in as context so they
+survive a Portuguese recognizer. On-device recognition is preferred; when it is not
+usable the same session continues through Apple's servers without you noticing.
+
+Partial results drive the feedback only. The recognizer revises what it already said, so
+nothing reaches the target app until the final transcription is ready. Audio is never
+written to disk, and silence inserts nothing.
+
+The mechanism sits behind a `TranscriptionProvider` protocol, so swapping Apple Speech
+for a local Whisper or a cloud service does not touch the overlay, the shortcuts or the
+insertion.
+
+> [!NOTE]
+> On-device recognition needs **Dictation** enabled in
+> `System Settings → Keyboard → Dictation`. With it off, the local recognizer fails
+> immediately (`kLSRErrorDomain 201`) even when the language model is installed, and
+> Promptbox falls back to server recognition for that session.
+
 ### Prompt editor
 
 <p align="center">
@@ -170,6 +204,7 @@ prompts; after that the file is yours.
 | Shortcut | Action |
 | --- | --- |
 | `⌥Space` | Open or close the launcher, from anywhere |
+| `⌥V` | Start Voice Insert, from anywhere (again to cancel) |
 | `⇧⌘P` | Open the prompt editor, from anywhere |
 | `↑` `↓` | Move the selection |
 | `↵` | Insert into the previous app |
@@ -179,6 +214,14 @@ prompts; after that the file is yours.
 | `⌘E` | Edit the selected prompt |
 | `⌘⌫` | Delete the selected prompt (asks for confirmation) |
 | `esc` | Close |
+
+While Voice Insert is recording:
+
+| Shortcut | Action |
+| --- | --- |
+| `⌃↵` | Finish and insert |
+| `⌃⇧↵` | Finish, insert and send |
+| `esc` | Cancel and discard |
 
 Right-clicking a row opens a context menu with the same actions.
 
@@ -195,10 +238,24 @@ System Settings → Privacy & Security → Accessibility → Promptbox
 Promptbox asks for it the first time an insert is attempted and offers to open the right
 settings pane. Search, editing and storage all work without it — only the paste needs it.
 
+Voice Insert additionally requires **Microphone** and **Speech Recognition**:
+
+```text
+System Settings → Privacy & Security → Microphone → Promptbox
+System Settings → Privacy & Security → Speech Recognition → Promptbox
+```
+
+Both are asked for on the first `⌥V`, before the overlay appears. If either is denied,
+Promptbox says which one and opens the matching pane. Everything else keeps working.
+
 > [!NOTE]
-> Promptbox is currently built without a signing certificate (ad-hoc signature).
-> macOS derives the Accessibility grant from the signature, so **the permission has to be
-> granted again after every rebuild**. Signing with a stable certificate removes this.
+> macOS derives the Accessibility grant from the code signature. Xcode signs local builds
+> ad-hoc, which produces a different identity on every build — the toggle stays on in
+> System Settings while pointing at the previous binary.
+>
+> `./scripts/sign-local.sh build/Promptbox.app` creates a local signing certificate once
+> and reuses it, so the grant survives rebuilds. Run it after each build, or grant the
+> permission again every time.
 
 ---
 
@@ -216,13 +273,15 @@ Promptbox/
 │   ├── Input/                  KeyStroke, the AppKit-free keyboard type
 │   ├── Hotkey/                 Carbon global hotkey
 │   ├── Insertion/              clipboard, focus handoff, ⌘V
+│   ├── Permissions/            microphone and speech recognition
 │   ├── Dialogs.swift           modal alerts
 │   ├── Log.swift               os.Logger channels
 │   └── LoginItem.swift         launch at login
 │
 ├── Features/
 │   ├── Launcher/               search field, rows, footer, view model
-│   └── PromptEditor/           form, icon grid, view model
+│   ├── PromptEditor/           form, icon grid, view model
+│   └── VoiceInsert/            overlay, waveform, audio capture, transcription
 │
 ├── Models/                     Prompt, PromptStore, PromptRecord (SwiftData)
 ├── Mocks/                      the eight seeded prompts
@@ -330,6 +389,14 @@ non-sandboxed SwiftData app shares. Promptbox writes to its own folder instead.
 `⌘1`…`⌘9` read the physical key code. Reading the typed character breaks on
 layouts where a digit requires Shift, such as French AZERTY.
 
+### Audio setup never touches the main thread
+
+`AVAudioNode.inputFormat(forBus:)` and `AVAudioEngine.start()` `dispatch_sync` into
+CoreAudio and sit in a `mach_msg` until `coreaudiod` answers. With an aggregate audio
+device, enumerating sub-devices takes *seconds*. Run from the main actor, that froze the
+whole app — including `⌥Space`, which has nothing to do with voice. `AudioRecorder` owns
+a serial queue and nothing else talks to the engine.
+
 ### No sandbox
 
 Reading the frontmost application, posting keyboard events and restoring the clipboard
@@ -340,7 +407,8 @@ are incompatible with the App Sandbox.
 # Status
 
 Promptbox is a working prototype. The full loop — hotkey, search, insert, save, edit,
-delete, persistence — is implemented and working end to end.
+delete, persistence — is implemented and working end to end. Voice Insert is in, with
+Apple Speech as the first transcription provider.
 
 Not built yet:
 
@@ -350,9 +418,13 @@ favorites
 prompt variables and templates
 import / export
 configurable shortcuts
+local Whisper provider
+voice prompt (speech → LLM → structured prompt)
 iCloud or any kind of sync
 ```
 
 The product boundary is deliberate:
 
 > Open. Search. Insert.
+>
+> Or: speak. Insert.

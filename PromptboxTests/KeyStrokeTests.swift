@@ -32,4 +32,17 @@ struct KeyStrokeTests {
         #expect(KeyStroke(code: 0, modifiers: [.shift]).hasCommand == false)
         #expect(KeyStroke(code: 0, modifiers: [.command, .shift]).hasCommand)
     }
+
+    @Test("⌃ e ⇧ são lidos separadamente de ⌘")
+    func controlAndShiftAreDistinct() {
+        // ⌃↵ e ⌃⇧↵ só se distinguem por isso (VOICE-INSERT §Atalhos).
+        let control = KeyStroke(code: KeyCode.returnKey, modifiers: .control)
+        #expect(control.hasControl)
+        #expect(!control.hasShift)
+        #expect(!control.hasCommand)
+
+        let controlShift = KeyStroke(code: KeyCode.returnKey, modifiers: [.control, .shift])
+        #expect(controlShift.hasControl)
+        #expect(controlShift.hasShift)
+    }
 }

@@ -19,7 +19,14 @@ struct PromptboxApp: App {
             }
             .keyboardShortcut("p", modifiers: [.command, .shift])
 
+            Button(voiceTitle) {
+                appDelegate.coordinator.toggleVoiceInsert()
+            }
+            .keyboardShortcut("v", modifiers: .option)
+
             Divider()
+
+            accessibilityStatus
 
             Toggle(Strings.Menu.launchAtLogin, isOn: launchAtLogin)
 
@@ -37,10 +44,28 @@ struct PromptboxApp: App {
         .menuBarExtraStyle(.menu)
     }
 
+    /// Mostra o que o app enxerga, não o que o painel de Ajustes sugere.
+    @ViewBuilder
+    private var accessibilityStatus: some View {
+        if appDelegate.coordinator.hasInsertionPermission {
+            Text(Strings.Menu.accessibilityGranted)
+        } else {
+            Button(Strings.Menu.accessibilityMissing) {
+                appDelegate.coordinator.requestInsertionPermission()
+            }
+        }
+    }
+
     private var searchTitle: String {
         appDelegate.coordinator.isLauncherHotkeyActive
             ? Strings.Menu.search
             : Strings.Menu.searchHotkeyTaken
+    }
+
+    private var voiceTitle: String {
+        appDelegate.coordinator.isVoiceHotkeyActive
+            ? Strings.Menu.voiceInsert
+            : Strings.Menu.voiceInsertHotkeyTaken
     }
 
     /// Lê o estado real do sistema: o usuário pode desligar o item de login pelos

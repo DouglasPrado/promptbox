@@ -406,3 +406,176 @@ existiam apenas para desfazer o isolamento imposto pelo projeto.
 
 Decisão: o Promptbox compila de Swift 6.1 em diante, sem depender de recursos
 do toolchain mais recente.
+
+### Três tentativas até acertar o gatilho de "sumir ao trocar de app"
+
+O requisito do PRD §4.3 é simples de enunciar e difícil de amarrar ao evento certo.
+
+1. **`applicationDidResignActive`.** Trocar a política de ativação de `.accessory`
+   para `.regular` — necessária para o painel receber teclado — faz o app piscar
+   inativo. O painel abria e sumia no mesmo instante.
+2. **`NSWorkspace.didActivateApplicationNotification`.** Melhor, mas quando o
+   Promptbox não consegue segurar o primeiro plano, o app anterior reativa logo em
+   seguida e o painel some em menos de um segundo. Medido: abria e fechava com o
+   app de origem nunca deixando de ser o frontmost. Era isso que obrigava o usuário
+   a apertar ⌥Space várias vezes.
+3. **`NSWindow.didResignKeyNotification` no painel do launcher.** O sinal que de
+   fato descreve a intenção: o painel deixou de ser onde o usuário digita. Se ele
+   nunca recebe o foco, também não o perde, e fica aberto até ESC ou ⌥Space — o
+   comportamento menos surpreendente dos três.
+
+Verificado por amostragem de janela: ⌥Space abre e o painel continua aberto depois
+de 8 s; ativar outro app o esconde.
+
+Lição: "o app perdeu o foco" e "outro app ganhou o foco" parecem sinônimos de
+"o usuário saiu", mas ambos disparam por efeitos internos do próprio app. A janela
+perder o foco de teclado é o único dos três que fala da interação real.
+
+### Regressão: o launcher se escondia sozinho ao abrir
+
+O "sumir ao trocar de app" foi implementado reagindo a `applicationDidResignActive`.
+Só que trocar a política de ativação de `.accessory` para `.regular` — necessário
+para o painel receber teclado — faz o app piscar inativo. O resultado: o painel
+abria e se escondia no mesmo instante, e nada era inserido no app de destino.
+
+Duas correções:
+
+- a política passa a ser ajustada **antes** de exibir o painel, ordem que já
+  existia antes da refatoração;
+- o gatilho deixou de ser "este app perdeu o foco" e passou a ser
+  `NSWorkspace.didActivateApplicationNotification` filtrando o próprio bundle —
+  ou seja, "**outro** app assumiu o primeiro plano". O piscar da troca de política
+  não ativa outro app, então não há falso positivo.
+
+Uma primeira tentativa, de confirmar `NSApp.isActive` no ciclo seguinte, não
+resolveu: no momento da checagem o app ainda constava inativo.
+
+Lição: reagir à perda de foco é ambíguo, porque o próprio app provoca perdas de
+foco transitórias. Reagir à ativação de outro app é o evento que de fato descreve
+a intenção do usuário.
+
+### Identidade de assinatura estável
+
+A permissão de Acessibilidade caía a cada compilação: o Xcode assina builds locais
+em modo ad-hoc, e o TCC amarra a autorização à assinatura. O item continuava
+marcado em Ajustes do Sistema, apontando para o binário anterior.
+
+`scripts/sign-local.sh` cria um certificado de code signing próprio num chaveiro
+dedicado e assina o app com ele. A identidade para de mudar e a autorização
+sobrevive aos builds.
+
+Detalhe que custou uma tentativa: o `security import` do macOS recusa o MAC padrão
+do OpenSSL 3. O p12 precisa ser exportado com `-macalg sha1` e PBE 3DES, e com
+senha não vazia.
+
+### Duplo Enter para inserir
+
+A ordem era inserir e depois fechar, então o Promptbox devolvia o foco ao app
+anterior com o próprio painel ainda na tela e o app ainda em primeiro plano. A
+espera pela ativação do destino estourava e o ⌘V saía assim mesmo, no app errado;
+na segunda tentativa o destino já estava na frente e funcionava.
+
+Agora o painel fecha antes de a inserção começar.
+
+---
+
+## Voice Insert
+
+**Data:** 2026-09-18
+**Escopo:** `docs/VOICE-INSERT.md` inteiro, com o visual de `docs/screen-04.png`.
+
+### Entregue
+
+- **⌥V grava na hora.** Overlay de 540×52 junto à base da tela, no espírito do mockup:
+  ponto vermelho, "Gravando...", timer `0:08`, waveform espelhada azul, divisor e as
+  duas saídas (`⌃↵ Inserir`, `Esc Cancelar`).
+- **⌃↵ insere**, **⌃⇧↵ insere e envia**, **Esc descarta** sem tocar no clipboard.
+  Um segundo **⌥V** também cancela.
+- **Captura** com `AVAudioEngine`, **transcrição** com `SFSpeechRecognizer` em pt-BR,
+  resultados parciais ligados e vocabulário técnico em `contextualStrings`.
+- **Provider desacoplado** (`TranscriptionProvider`), com `AppleSpeechProvider` como
+  primeira implementação. Trocar por Whisper local não toca overlay, atalhos nem inserção.
+- **Injeção reaproveitada**: `PromptInserter` ganhou `insert(text:mode:)`; prompt salvo e
+  voz entram pelo mesmo lugar.
+- Permissões de microfone e reconhecimento de fala, com alerta próprio por painel dos
+  Ajustes. Entitlement `com.apple.security.device.audio-input` e descrições no Info.plist.
+- Item "Ditar e Inserir" na barra de menus, com aviso quando ⌥V está tomado.
+
+### Cinco bugs que só apareceram com o app rodando
+
+1. **O app congelava inteiro, inclusive o ⌥Space.** `inputFormat(forBus:)` faz
+   `dispatch_sync` para dentro do CoreAudio e fica num `mach_msg` até o `coreaudiod`
+   responder; com dispositivo agregado, enumerar sub-dispositivos leva *segundos*. Rodando
+   na main actor, isso mata o app. Achado com `sample`: 1507 de 1507 amostras dentro de
+   `AVAudioIOUnit::GetHWFormat`. `AudioRecorder` passou a ter fila serial própria.
+2. **Crash na resposta do TCC.** O handler de `SFSpeechRecognizer.requestAuthorization`
+   vem de uma fila de background, mas dentro de um tipo `@MainActor` o Swift isola o
+   closure junto — e a chamada aborta na checagem de executor. Em tempo de execução, sem
+   nenhum aviso do compilador. Mesmo padrão estava em `recognitionTask`. Os dois viraram
+   `@Sendable`, com salto explícito de volta.
+3. **Transcrição sumia durante "Transcrevendo...".** O overlay cancelava ao perder o foco
+   de teclado — regra certa enquanto grava, errada depois do ⌃↵: o usuário já pediu o
+   texto. Virou `cancelIfRecording()`.
+4. **Reconhecimento local falhava sempre.** `kLSRErrorDomain 201`, mesmo com o modelo
+   pt-BR instalado: o Ditado estava desligado nos Ajustes. `supportsOnDeviceRecognition`
+   diz que o modelo existe, não que pode ser usado agora.
+5. **O app morria no lançamento depois de assinado.** `scripts/sign-local.sh` usava
+   `--deep`, que não alcança os dylibs que o Xcode 26 põe em `Contents/MacOS/`, e
+   `--options runtime` liga validação de biblioteca, que exige Team ID igual — coisa que
+   certificado autoassinado não tem.
+
+### Decisões
+
+- **Sem `VoiceInsertController`.** O documento previa um, mas quem é dono de painel,
+  hotkey e navegação neste projeto é o `AppCoordinator`. Um segundo controlador duplicaria
+  essa posse. A lógica de sessão ficou no view model, como no launcher e no editor.
+- **Sem `TargetContext` com `AXUIElement`.** A estratégia de inserção é clipboard + ⌘V, e
+  para isso basta o app anterior: o macOS devolve o foco ao campo que já estava ativo. É o
+  que o launcher faz desde a Fase 4, e funciona.
+- **Sem `VoiceOverlayPanel` próprio.** `FloatingPanel` já é o `NSPanel` não-ativante com
+  blur que o documento pede. `FloatingPanelController` ganhou `Placement` para ancorar
+  junto à base.
+- **Queda para o servidor dentro da mesma sessão.** Ao ver `kLSRErrorDomain`, o provider
+  troca o `SFSpeechAudioBufferRecognitionRequest` sem parar o microfone. Perde-se a fração
+  de segundo entre o ⌥V e a falha — antes de alguém falar. O documento pede exatamente
+  isso: não assumir reconhecimento local.
+- **`completed` e `cancelled` ficaram fora do enum de estados.** São o mesmo instante em
+  que o overlay fecha e tudo volta a `idle`; o resultado da sessão já está no delegate.
+- **`failed(VoiceInsertFailure)` com erro concreto**, não `any Error`: deixa o estado
+  `Equatable` e a máquina de estados testável por igualdade.
+- **Sem texto parcial no overlay.** O mockup mostra a barra em uma linha só, a 0:08 de
+  gravação. A hipótese parcial alimenta o `accessibilityValue`, que é onde ela serve.
+- **Limite de 5 minutos encerra e insere**, nunca envia. Descartar cinco minutos de fala
+  seria pior que colar o que foi dito.
+- **`sign-local.sh` não liga mais Hardened Runtime.** Sem ele o microfone não exige
+  entitlement — quem exige é ele. O `Promptbox.entitlements` continua valendo para os
+  builds assinados pelo Xcode, que é onde o Hardened Runtime está de fato ligado.
+
+### Verificado com o app rodando
+
+- ⌥V abre o overlay em **173–510 ms** (a primeira vez é a mais lenta, com o motor de áudio
+  frio). Alvo do documento: 500 ms.
+- Cinco ciclos ⌥V + Esc seguidos: abre e fecha nas cinco, app vivo no fim.
+- ⌃↵ com silêncio: `reconhecimento local indisponível` → `seguindo pelo servidor` →
+  `nenhuma fala detectada`. Nada inserido, clipboard intacto.
+- Estados `Gravando...`, `Transcrevendo...` e a mensagem de erro capturados na tela.
+- Inserção verificada ponta a ponta pelo caminho compartilhado: prompt colado no Terminal
+  e no TextEdit, com a sentinela do clipboard preservada.
+- 63 testes passando; Debug e Release sem warnings.
+
+### Correção de posicionamento
+
+Na primeira exibição o painel ainda tinha a altura inicial de 1 pt, e o AppKit mantém o
+topo fixo ao redimensionar: o overlay nascia 51 pt fora do lugar e saltava no uso
+seguinte. `FloatingPanelController.show()` passou a dimensionar pelo conteúdo antes de
+posicionar. Medido antes: `y=959` na primeira, `y=908` nas demais. Depois: `y=908` sempre.
+A altura dinâmica do launcher continua funcionando (292 → 176 ao filtrar).
+
+### Falta uma passada manual
+
+**Fala real → texto.** O reconhecimento foi exercitado (parciais, final, erro, queda para
+o servidor), mas com ruído ambiente, não com voz. Tocar fala sintetizada não serviu: a
+saída deste Mac é um fone Bluetooth, e o microfone não a ouve. Precisa de alguém falando.
+
+Vale também ligar **Ditado** em Ajustes → Teclado: sem ele o reconhecimento local nunca é
+usado, e toda sessão passa pelos servidores da Apple.

@@ -24,10 +24,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || environment["XCTestBundlePath"] != nil
     }
 
-    func applicationDidResignActive(_ notification: Notification) {
-        coordinator.appDidResignActive()
-    }
-
     /// Abrir o app de novo (Finder, Spotlight) reabre o launcher em vez de não
     /// fazer nada.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
