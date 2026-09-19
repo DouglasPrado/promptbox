@@ -476,3 +476,106 @@ espera pela ativação do destino estourava e o ⌘V saía assim mesmo, no app e
 na segunda tentativa o destino já estava na frente e funcionava.
 
 Agora o painel fecha antes de a inserção começar.
+
+---
+
+## Voice Insert
+
+**Data:** 2026-09-18
+**Escopo:** `docs/VOICE-INSERT.md` inteiro, com o visual de `docs/screen-04.png`.
+
+### Entregue
+
+- **⌥V grava na hora.** Overlay de 540×52 junto à base da tela, no espírito do mockup:
+  ponto vermelho, "Gravando...", timer `0:08`, waveform espelhada azul, divisor e as
+  duas saídas (`⌃↵ Inserir`, `Esc Cancelar`).
+- **⌃↵ insere**, **⌃⇧↵ insere e envia**, **Esc descarta** sem tocar no clipboard.
+  Um segundo **⌥V** também cancela.
+- **Captura** com `AVAudioEngine`, **transcrição** com `SFSpeechRecognizer` em pt-BR,
+  resultados parciais ligados e vocabulário técnico em `contextualStrings`.
+- **Provider desacoplado** (`TranscriptionProvider`), com `AppleSpeechProvider` como
+  primeira implementação. Trocar por Whisper local não toca overlay, atalhos nem inserção.
+- **Injeção reaproveitada**: `PromptInserter` ganhou `insert(text:mode:)`; prompt salvo e
+  voz entram pelo mesmo lugar.
+- Permissões de microfone e reconhecimento de fala, com alerta próprio por painel dos
+  Ajustes. Entitlement `com.apple.security.device.audio-input` e descrições no Info.plist.
+- Item "Ditar e Inserir" na barra de menus, com aviso quando ⌥V está tomado.
+
+### Cinco bugs que só apareceram com o app rodando
+
+1. **O app congelava inteiro, inclusive o ⌥Space.** `inputFormat(forBus:)` faz
+   `dispatch_sync` para dentro do CoreAudio e fica num `mach_msg` até o `coreaudiod`
+   responder; com dispositivo agregado, enumerar sub-dispositivos leva *segundos*. Rodando
+   na main actor, isso mata o app. Achado com `sample`: 1507 de 1507 amostras dentro de
+   `AVAudioIOUnit::GetHWFormat`. `AudioRecorder` passou a ter fila serial própria.
+2. **Crash na resposta do TCC.** O handler de `SFSpeechRecognizer.requestAuthorization`
+   vem de uma fila de background, mas dentro de um tipo `@MainActor` o Swift isola o
+   closure junto — e a chamada aborta na checagem de executor. Em tempo de execução, sem
+   nenhum aviso do compilador. Mesmo padrão estava em `recognitionTask`. Os dois viraram
+   `@Sendable`, com salto explícito de volta.
+3. **Transcrição sumia durante "Transcrevendo...".** O overlay cancelava ao perder o foco
+   de teclado — regra certa enquanto grava, errada depois do ⌃↵: o usuário já pediu o
+   texto. Virou `cancelIfRecording()`.
+4. **Reconhecimento local falhava sempre.** `kLSRErrorDomain 201`, mesmo com o modelo
+   pt-BR instalado: o Ditado estava desligado nos Ajustes. `supportsOnDeviceRecognition`
+   diz que o modelo existe, não que pode ser usado agora.
+5. **O app morria no lançamento depois de assinado.** `scripts/sign-local.sh` usava
+   `--deep`, que não alcança os dylibs que o Xcode 26 põe em `Contents/MacOS/`, e
+   `--options runtime` liga validação de biblioteca, que exige Team ID igual — coisa que
+   certificado autoassinado não tem.
+
+### Decisões
+
+- **Sem `VoiceInsertController`.** O documento previa um, mas quem é dono de painel,
+  hotkey e navegação neste projeto é o `AppCoordinator`. Um segundo controlador duplicaria
+  essa posse. A lógica de sessão ficou no view model, como no launcher e no editor.
+- **Sem `TargetContext` com `AXUIElement`.** A estratégia de inserção é clipboard + ⌘V, e
+  para isso basta o app anterior: o macOS devolve o foco ao campo que já estava ativo. É o
+  que o launcher faz desde a Fase 4, e funciona.
+- **Sem `VoiceOverlayPanel` próprio.** `FloatingPanel` já é o `NSPanel` não-ativante com
+  blur que o documento pede. `FloatingPanelController` ganhou `Placement` para ancorar
+  junto à base.
+- **Queda para o servidor dentro da mesma sessão.** Ao ver `kLSRErrorDomain`, o provider
+  troca o `SFSpeechAudioBufferRecognitionRequest` sem parar o microfone. Perde-se a fração
+  de segundo entre o ⌥V e a falha — antes de alguém falar. O documento pede exatamente
+  isso: não assumir reconhecimento local.
+- **`completed` e `cancelled` ficaram fora do enum de estados.** São o mesmo instante em
+  que o overlay fecha e tudo volta a `idle`; o resultado da sessão já está no delegate.
+- **`failed(VoiceInsertFailure)` com erro concreto**, não `any Error`: deixa o estado
+  `Equatable` e a máquina de estados testável por igualdade.
+- **Sem texto parcial no overlay.** O mockup mostra a barra em uma linha só, a 0:08 de
+  gravação. A hipótese parcial alimenta o `accessibilityValue`, que é onde ela serve.
+- **Limite de 5 minutos encerra e insere**, nunca envia. Descartar cinco minutos de fala
+  seria pior que colar o que foi dito.
+- **`sign-local.sh` não liga mais Hardened Runtime.** Sem ele o microfone não exige
+  entitlement — quem exige é ele. O `Promptbox.entitlements` continua valendo para os
+  builds assinados pelo Xcode, que é onde o Hardened Runtime está de fato ligado.
+
+### Verificado com o app rodando
+
+- ⌥V abre o overlay em **173–510 ms** (a primeira vez é a mais lenta, com o motor de áudio
+  frio). Alvo do documento: 500 ms.
+- Cinco ciclos ⌥V + Esc seguidos: abre e fecha nas cinco, app vivo no fim.
+- ⌃↵ com silêncio: `reconhecimento local indisponível` → `seguindo pelo servidor` →
+  `nenhuma fala detectada`. Nada inserido, clipboard intacto.
+- Estados `Gravando...`, `Transcrevendo...` e a mensagem de erro capturados na tela.
+- Inserção verificada ponta a ponta pelo caminho compartilhado: prompt colado no Terminal
+  e no TextEdit, com a sentinela do clipboard preservada.
+- 63 testes passando; Debug e Release sem warnings.
+
+### Correção de posicionamento
+
+Na primeira exibição o painel ainda tinha a altura inicial de 1 pt, e o AppKit mantém o
+topo fixo ao redimensionar: o overlay nascia 51 pt fora do lugar e saltava no uso
+seguinte. `FloatingPanelController.show()` passou a dimensionar pelo conteúdo antes de
+posicionar. Medido antes: `y=959` na primeira, `y=908` nas demais. Depois: `y=908` sempre.
+A altura dinâmica do launcher continua funcionando (292 → 176 ao filtrar).
+
+### Falta uma passada manual
+
+**Fala real → texto.** O reconhecimento foi exercitado (parciais, final, erro, queda para
+o servidor), mas com ruído ambiente, não com voz. Tocar fala sintetizada não serviu: a
+saída deste Mac é um fone Bluetooth, e o microfone não a ouve. Precisa de alguém falando.
+
+Vale também ligar **Ditado** em Ajustes → Teclado: sem ele o reconhecimento local nunca é
+usado, e toda sessão passa pelos servidores da Apple.
